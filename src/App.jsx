@@ -386,7 +386,7 @@ function SC({label,value,sub,icon,color="#0ea5e9"}) {
 }
 function PH({title,badge,subtitle,action}) {
   return (
-    <div style={{background:"#fff",borderBottom:"1px solid #e2e8f0",padding:"15px 26px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+    <div className="ph-header" style={{background:"#fff",borderBottom:"1px solid #e2e8f0",padding:"15px 26px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
       <div>
         <div style={{display:"flex",alignItems:"center",gap:9}}>
           <h1 style={{fontSize:17,fontWeight:800,color:"#0f172a",margin:0}}>{title}</h1>
@@ -511,7 +511,7 @@ function SinoNotificacoes({ registros, setPagina }) {
 
       {/* Painel de notificações */}
       {aberto&&(
-        <div style={{position:"absolute",top:"calc(100% + 8px)",right:0,
+        <div className="sino-painel" style={{position:"absolute",top:"calc(100% + 8px)",right:0,
           width:320,background:"#fff",borderRadius:12,
           boxShadow:"0 8px 32px rgba(0,0,0,.2)",
           border:"1px solid #e2e8f0",zIndex:500,overflow:"hidden"}}>
@@ -831,7 +831,7 @@ function gerarPDFTurno(registros, turno, data, user) {
 // ══════════════════════════════════════════════════════════════════
 // SIDEBAR — com sino integrado
 // ══════════════════════════════════════════════════════════════════
-function Sidebar({user, pagina, setPagina, onLogout, registros, modoEscuro, setModoEscuro}) {
+function Sidebar({user, pagina, setPagina, onLogout, registros, modoEscuro, setModoEscuro, mobileOpen, setMobileOpen}) {
   const PC={Operador:"#f59e0b",Lider:"#3b82f6",Supervisor:"#10b981"};
   const NAV=[
     {id:"dashboard",      icon:"📊", label:"Dashboard",        perfis:["Operador","Lider","Supervisor"]},
@@ -855,131 +855,152 @@ function Sidebar({user, pagina, setPagina, onLogout, registros, modoEscuro, setM
   const acoesKpi   = registros.filter(r=>r.justificativasArr?.length>0).length;
   const badges     = { verificacao:pendentes, acoes_kpi:acoesKpi };
 
-  return (
-    <div style={{width:218,minWidth:218,background:"#0f172a",display:"flex",
-      flexDirection:"column",boxShadow:"2px 0 12px rgba(0,0,0,.2)"}}>
+  const irPara = (id) => { setPagina(id); setMobileOpen(false); };
 
-      {/* Logo + sino */}
-      <div style={{padding:"13px 13px 11px",borderBottom:"1px solid rgba(255,255,255,.06)"}}>
-        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-          <div style={{display:"flex",alignItems:"center",gap:9}}>
-            <div style={{width:33,height:33,background:"linear-gradient(135deg,#0ea5e9,#0284c7)",
-              borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center",fontSize:15}}>
-              🏭
+  return (
+    <>
+      {/* Overlay escuro — só aparece no mobile quando o menu está aberto */}
+      <div
+        className="sidebar-overlay"
+        onClick={()=>setMobileOpen(false)}
+        style={{
+          display: mobileOpen ? "block" : "none",
+        }}
+      />
+      <div className={`app-sidebar${mobileOpen ? " app-sidebar--open" : ""}`}
+        style={{width:218,minWidth:218,background:"#0f172a",display:"flex",
+        flexDirection:"column",boxShadow:"2px 0 12px rgba(0,0,0,.2)"}}>
+
+        {/* Logo + sino */}
+        <div style={{padding:"13px 13px 11px",borderBottom:"1px solid rgba(255,255,255,.06)"}}>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+            <div style={{display:"flex",alignItems:"center",gap:9}}>
+              <div style={{width:33,height:33,background:"linear-gradient(135deg,#0ea5e9,#0284c7)",
+                borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center",fontSize:15}}>
+                🏭
+              </div>
+              <div>
+                <div style={{color:"#f1f5f9",fontSize:13,fontWeight:800}}>
+                  KPI <span style={{color:"#0ea5e9"}}>SHO</span>
+                </div>
+                <div style={{color:"#475569",fontSize:9,fontFamily:"monospace",marginTop:1}}>
+                  ADM · Uberlândia
+                </div>
+              </div>
+            </div>
+            <div style={{display:"flex",alignItems:"center",gap:6}}>
+              {/* Sino */}
+              <SinoNotificacoes registros={registros} setPagina={irPara}/>
+              {/* Botão fechar — só no mobile */}
+              <button onClick={()=>setMobileOpen(false)} className="sidebar-close-btn"
+                style={{display:"none",background:"rgba(255,255,255,.06)",border:"none",
+                  color:"#94a3b8",width:30,height:30,borderRadius:7,fontSize:16,cursor:"pointer"}}>
+                ✕
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Navegação */}
+        <nav style={{flex:1,padding:"10px 7px",overflowY:"auto"}}>
+          {NAV.map((item)=>(
+            <div key={item.id}>
+              {item.id==="kpis_moagem"&&(
+                <div style={{fontSize:9,fontFamily:"monospace",color:"#334155",
+                  textTransform:"uppercase",letterSpacing:1.5,padding:"10px 12px 4px"}}>
+                  Registros
+                </div>
+              )}
+              {item.id==="calculadora"&&(
+                <div style={{fontSize:9,fontFamily:"monospace",color:"#334155",
+                  textTransform:"uppercase",letterSpacing:1.5,padding:"10px 12px 4px"}}>
+                  Ferramentas
+                </div>
+              )}
+              {item.id==="acoes"&&(
+                <div style={{fontSize:9,fontFamily:"monospace",color:"#334155",
+                  textTransform:"uppercase",letterSpacing:1.5,padding:"10px 12px 4px"}}>
+                  Gestão
+                </div>
+              )}
+              <div onClick={()=>irPara(item.id)}
+                style={{display:"flex",alignItems:"center",gap:9,padding:"9px 11px",
+                  borderRadius:7,cursor:"pointer",marginBottom:1,
+                  background:pagina===item.id?"rgba(14,165,233,.15)":"transparent",
+                  borderLeft:pagina===item.id?"3px solid #0ea5e9":"3px solid transparent",
+                  transition:"all .15s"}}>
+                <span style={{fontSize:14}}>{item.icon}</span>
+                <span style={{fontSize:12,fontWeight:pagina===item.id?700:400,
+                  color:pagina===item.id?"#e2e8f0":"#64748b",flex:1}}>
+                  {item.label}
+                </span>
+                {/* Badge de contagem no item */}
+                {badges[item.id]>0&&(
+                  <span style={{background:"#dc2626",color:"#fff",fontSize:9,
+                    fontWeight:800,fontFamily:"monospace",
+                    padding:"1px 5px",borderRadius:8,minWidth:16,textAlign:"center"}}>
+                    {badges[item.id]>99?"99+":badges[item.id]}
+                  </span>
+                )}
+              </div>
+            </div>
+          ))}
+        </nav>
+
+        {/* Botão PDF do turno */}
+        <div style={{padding:"8px 10px",borderTop:"1px solid rgba(255,255,255,.04)",
+          borderBottom:"1px solid rgba(255,255,255,.04)"}}>
+          <button
+            onClick={()=>gerarPDFTurno(
+              registros,
+              detectarTurno(),
+              new Date().toISOString().split("T")[0],
+              user
+            )}
+            style={{width:"100%",padding:"7px",
+              background:"linear-gradient(135deg,rgba(14,165,233,.15),rgba(2,132,199,.1))",
+              border:"1px solid rgba(14,165,233,.25)",borderRadius:6,
+              color:"#7dd3fc",fontSize:11,cursor:"pointer",fontWeight:700,
+              display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
+            🖨 PDF do Turno Atual
+          </button>
+        </div>
+
+        {/* Usuário + sair */}
+        <div style={{padding:"10px 13px"}}>
+          <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
+            <div style={{width:30,height:30,borderRadius:"50%",
+              background:PC[user.perfil]||"#64748b",
+              display:"flex",alignItems:"center",justifyContent:"center",
+              fontSize:12,fontWeight:700,color:"#fff"}}>
+              {user.nome.charAt(0)}
             </div>
             <div>
-              <div style={{color:"#f1f5f9",fontSize:13,fontWeight:800}}>
-                KPI <span style={{color:"#0ea5e9"}}>SHO</span>
+              <div style={{color:"#e2e8f0",fontSize:11,fontWeight:600,lineHeight:1}}>
+                {user.nome.split(" ")[0]}
               </div>
-              <div style={{color:"#475569",fontSize:9,fontFamily:"monospace",marginTop:1}}>
-                ADM · Uberlândia
+              <div style={{color:"#475569",fontSize:9,fontFamily:"monospace"}}>
+                {user.perfil} · {user.turno}
               </div>
             </div>
           </div>
-          {/* Sino */}
-          <SinoNotificacoes registros={registros} setPagina={setPagina}/>
+          <button onClick={onLogout}
+            style={{width:"100%",padding:"6px",background:"rgba(239,68,68,.1)",
+              border:"1px solid rgba(239,68,68,.2)",borderRadius:5,
+              color:"#f87171",fontSize:11,cursor:"pointer",fontWeight:600}}>
+            Sair
+          </button>
+          <button onClick={()=>setModoEscuro(m=>!m)}
+            style={{width:"100%",padding:"6px",marginTop:5,
+              background:"rgba(255,255,255,.05)",
+              border:"1px solid rgba(255,255,255,.08)",borderRadius:5,
+              color:"#94a3b8",fontSize:11,cursor:"pointer",fontWeight:600,
+              display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
+            {modoEscuro ? "☀ Modo Claro" : "🌙 Modo Escuro"}
+          </button>
         </div>
       </div>
-
-      {/* Navegação */}
-      <nav style={{flex:1,padding:"10px 7px",overflowY:"auto"}}>
-        {NAV.map((item)=>(
-          <div key={item.id}>
-            {item.id==="kpis_moagem"&&(
-              <div style={{fontSize:9,fontFamily:"monospace",color:"#334155",
-                textTransform:"uppercase",letterSpacing:1.5,padding:"10px 12px 4px"}}>
-                Registros
-              </div>
-            )}
-            {item.id==="calculadora"&&(
-              <div style={{fontSize:9,fontFamily:"monospace",color:"#334155",
-                textTransform:"uppercase",letterSpacing:1.5,padding:"10px 12px 4px"}}>
-                Ferramentas
-              </div>
-            )}
-            {item.id==="acoes"&&(
-              <div style={{fontSize:9,fontFamily:"monospace",color:"#334155",
-                textTransform:"uppercase",letterSpacing:1.5,padding:"10px 12px 4px"}}>
-                Gestão
-              </div>
-            )}
-            <div onClick={()=>setPagina(item.id)}
-              style={{display:"flex",alignItems:"center",gap:9,padding:"9px 11px",
-                borderRadius:7,cursor:"pointer",marginBottom:1,
-                background:pagina===item.id?"rgba(14,165,233,.15)":"transparent",
-                borderLeft:pagina===item.id?"3px solid #0ea5e9":"3px solid transparent",
-                transition:"all .15s"}}>
-              <span style={{fontSize:14}}>{item.icon}</span>
-              <span style={{fontSize:12,fontWeight:pagina===item.id?700:400,
-                color:pagina===item.id?"#e2e8f0":"#64748b",flex:1}}>
-                {item.label}
-              </span>
-              {/* Badge de contagem no item */}
-              {badges[item.id]>0&&(
-                <span style={{background:"#dc2626",color:"#fff",fontSize:9,
-                  fontWeight:800,fontFamily:"monospace",
-                  padding:"1px 5px",borderRadius:8,minWidth:16,textAlign:"center"}}>
-                  {badges[item.id]>99?"99+":badges[item.id]}
-                </span>
-              )}
-            </div>
-          </div>
-        ))}
-      </nav>
-
-      {/* Botão PDF do turno */}
-      <div style={{padding:"8px 10px",borderTop:"1px solid rgba(255,255,255,.04)",
-        borderBottom:"1px solid rgba(255,255,255,.04)"}}>
-        <button
-          onClick={()=>gerarPDFTurno(
-            registros,
-            detectarTurno(),
-            new Date().toISOString().split("T")[0],
-            user
-          )}
-          style={{width:"100%",padding:"7px",
-            background:"linear-gradient(135deg,rgba(14,165,233,.15),rgba(2,132,199,.1))",
-            border:"1px solid rgba(14,165,233,.25)",borderRadius:6,
-            color:"#7dd3fc",fontSize:11,cursor:"pointer",fontWeight:700,
-            display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
-          🖨 PDF do Turno Atual
-        </button>
-      </div>
-
-      {/* Usuário + sair */}
-      <div style={{padding:"10px 13px"}}>
-        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
-          <div style={{width:30,height:30,borderRadius:"50%",
-            background:PC[user.perfil]||"#64748b",
-            display:"flex",alignItems:"center",justifyContent:"center",
-            fontSize:12,fontWeight:700,color:"#fff"}}>
-            {user.nome.charAt(0)}
-          </div>
-          <div>
-            <div style={{color:"#e2e8f0",fontSize:11,fontWeight:600,lineHeight:1}}>
-              {user.nome.split(" ")[0]}
-            </div>
-            <div style={{color:"#475569",fontSize:9,fontFamily:"monospace"}}>
-              {user.perfil} · {user.turno}
-            </div>
-          </div>
-        </div>
-        <button onClick={onLogout}
-          style={{width:"100%",padding:"6px",background:"rgba(239,68,68,.1)",
-            border:"1px solid rgba(239,68,68,.2)",borderRadius:5,
-            color:"#f87171",fontSize:11,cursor:"pointer",fontWeight:600}}>
-          Sair
-        </button>
-        <button onClick={()=>setModoEscuro(m=>!m)}
-          style={{width:"100%",padding:"6px",marginTop:5,
-            background:"rgba(255,255,255,.05)",
-            border:"1px solid rgba(255,255,255,.08)",borderRadius:5,
-            color:"#94a3b8",fontSize:11,cursor:"pointer",fontWeight:600,
-            display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
-          {modoEscuro ? "☀ Modo Claro" : "🌙 Modo Escuro"}
-        </button>
-      </div>
-    </div>
+    </>
   );
 }
 
@@ -2590,7 +2611,7 @@ function TelaCalculadora({ user, histCalc, setHistCalc }) {
                 </button>
               </div>
             </div>
-            <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
+            <div className="table-scroll"><table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
               <thead>
                 <tr style={{background:"#f8fafc"}}>
                   {["Data","Hora","Operador","Produção","Soja","Farelo","Óleo","Rend.","Tipo"].map(h=>(
@@ -2619,7 +2640,7 @@ function TelaCalculadora({ user, histCalc, setHistCalc }) {
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </table></div>
           </div>
         )}
       </div>
@@ -2986,7 +3007,7 @@ function TelaRastreabilidade({ registros, metas=METAS_DEFAULT }) {
           ) : (
             <div style={{background:"#fff",borderRadius:10,overflow:"hidden",
               border:"1px solid #e2e8f0",boxShadow:"0 1px 4px rgba(0,0,0,.05)"}}>
-              <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+              <div className="table-scroll"><table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
                 <thead>
                   <tr style={{background:"#0f172a"}}>
                     {["Data","Hora","Turno","Operador","Proteína","Umid. Farelo","Óleo","Status","Desvios"].map(h=>(
@@ -3046,7 +3067,7 @@ function TelaRastreabilidade({ registros, metas=METAS_DEFAULT }) {
                     );
                   })}
                 </tbody>
-              </table>
+              </table></div>
               {registrosFiltrados.length>50&&(
                 <div style={{padding:"10px 16px",background:"#f8fafc",borderTop:"1px solid #e2e8f0",
                   fontSize:11,color:"#94a3b8",textAlign:"center",fontFamily:"monospace"}}>
@@ -4069,7 +4090,7 @@ Conformidade: ${stats?.conformidade??0}% | Desvios: ${stats?.comDesvio??0} | Mé
             {/* ── TABELA ── */}
             <div style={{background:"#fff",borderRadius:10,overflow:"hidden",
               border:"1px solid #e2e8f0",boxShadow:"0 1px 4px rgba(0,0,0,.05)"}}>
-              <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+              <div className="table-scroll"><table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
                 <thead>
                   <tr style={{background:"#0f172a"}}>
                     {["Data","Hora","Turno","Operador","Tipo","Proteína","Umid. Farelo","Óleo","Status","Desvios"].map(h=>(
@@ -4147,7 +4168,7 @@ Conformidade: ${stats?.conformidade??0}% | Desvios: ${stats?.comDesvio??0} | Mé
                     );
                   })}
                 </tbody>
-              </table>
+              </table></div>
             </div>
 
             {/* Paginação */}
@@ -4536,7 +4557,7 @@ function TelaCadastros({ user, metas=METAS_DEFAULT, setMetas, auditoria, setAudi
             {/* Tabela de usuários */}
             <div style={{background:"#fff",borderRadius:10,overflow:"hidden",
               border:"1px solid #e2e8f0",boxShadow:"0 1px 4px rgba(0,0,0,.05)"}}>
-              <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+              <div className="table-scroll"><table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
                 <thead>
                   <tr style={{background:"#0f172a"}}>
                     {["Nome","E-mail","Perfil","Turno","Status","Ações"].map(h=>(
@@ -4618,7 +4639,7 @@ function TelaCadastros({ user, metas=METAS_DEFAULT, setMetas, auditoria, setAudi
                     );
                   })}
                 </tbody>
-              </table>
+              </table></div>
             </div>
 
             {/* Modal confirmação desativar */}
@@ -4660,7 +4681,7 @@ function TelaCadastros({ user, metas=METAS_DEFAULT, setMetas, auditoria, setAudi
               letterSpacing:.5,fontFamily:"monospace",marginBottom:7}}>KPIs Moagem — Metas Ativas</div>
             <div style={{background:"#fff",borderRadius:9,overflow:"hidden",
               border:"1px solid #e2e8f0",marginBottom:16}}>
-              <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+              <div className="table-scroll"><table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
                 <thead>
                   <tr style={{background:"#f8fafc"}}>
                     {["KPI","Mínimo","Máximo","Un.","Status"].map(h=>(
@@ -4704,12 +4725,12 @@ function TelaCadastros({ user, metas=METAS_DEFAULT, setMetas, auditoria, setAudi
                     );
                   })}
                 </tbody>
-              </table>
+              </table></div>
             </div>
             <div style={{fontSize:10,fontWeight:700,color:"#64748b",textTransform:"uppercase",
               letterSpacing:.5,fontFamily:"monospace",marginBottom:7}}>+ KPIs — Referência</div>
             <div style={{background:"#fff",borderRadius:9,overflow:"hidden",border:"1px solid #e2e8f0"}}>
-              <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+              <div className="table-scroll"><table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
                 <thead>
                   <tr style={{background:"#f8fafc"}}>
                     {["KPI","Mínimo","Máximo","Un."].map(h=>(
@@ -4737,7 +4758,7 @@ function TelaCadastros({ user, metas=METAS_DEFAULT, setMetas, auditoria, setAudi
                     </tr>
                   ))}
                 </tbody>
-              </table>
+              </table></div>
             </div>
           </div>
         )}
@@ -5260,7 +5281,7 @@ function TelaAuditoria({ auditoria }) {
         ) : (
           <div style={{background:"#fff",borderRadius:10,overflow:"hidden",
             border:"1px solid #e2e8f0",boxShadow:"0 1px 4px rgba(0,0,0,.05)"}}>
-            <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+            <div className="table-scroll"><table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
               <thead>
                 <tr style={{background:"#0f172a"}}>
                   {["Data/Hora","Usuário","Perfil","Evento","Detalhes"].map(h=>(
@@ -5316,7 +5337,7 @@ function TelaAuditoria({ auditoria }) {
                   );
                 })}
               </tbody>
-            </table>
+            </table></div>
             <div style={{padding:"9px 14px",background:"#f8fafc",
               borderTop:"1px solid #e2e8f0",fontSize:10,
               color:"#94a3b8",fontFamily:"monospace",textAlign:"center"}}>
@@ -6360,7 +6381,7 @@ function TelaDashboard({user, setPagina, registros, metas=METAS_DEFAULT}) {
                 Ver todos →
               </button>
             </div>
-            <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+            <div className="table-scroll"><table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
               <thead>
                 <tr style={{background:"#f8fafc"}}>
                   {["Hora","Operador","Proteína","Umid. Farelo","Óleo","Status"].map(h=>(
@@ -6397,7 +6418,7 @@ function TelaDashboard({user, setPagina, registros, metas=METAS_DEFAULT}) {
                   );
                 })}
               </tbody>
-            </table>
+            </table></div>
           </div>
         )}
       </div>
@@ -6418,6 +6439,7 @@ export default function App() {
   const [salvando,    setSalvando]    = useState(false);
   const [modoEscuro,  setModoEscuro]  = useState(false);
   const [auditoria,   setAuditoria]   = useState([]);
+  const [mobileOpen,  setMobileOpen]  = useState(false);
 
   const tema = modoEscuro ? TEMA.escuro : TEMA.claro;
 
@@ -6544,10 +6566,21 @@ export default function App() {
       <Sidebar user={user} pagina={pagina} setPagina={setPagina}
         onLogout={()=>{setUser(null);setPagina("dashboard");}}
         registros={registros}
-        modoEscuro={modoEscuro} setModoEscuro={setModoEscuro}/>
-      <div style={{flex:1,overflow:"auto",position:"relative",
+        modoEscuro={modoEscuro} setModoEscuro={setModoEscuro}
+        mobileOpen={mobileOpen} setMobileOpen={setMobileOpen}/>
+      <div style={{flex:1,overflow:"auto",position:"relative",minWidth:0,
         background: modoEscuro ? TEMA.escuro.bg : TEMA.claro.bg,
         transition:"background .3s"}}>
+        {/* Barra superior mobile — só aparece em telas pequenas */}
+        <div className="mobile-topbar">
+          <button onClick={()=>setMobileOpen(true)} className="mobile-hamburger" aria-label="Abrir menu">
+            <span/><span/><span/>
+          </button>
+          <div style={{fontWeight:800,fontSize:13,color:"#0f172a"}}>
+            KPI <span style={{color:"#0ea5e9"}}>SHO</span>
+          </div>
+          <div style={{width:34}}/>
+        </div>
         {/* Indicador de salvamento */}
         {salvando && (
           <div style={{position:"fixed",bottom:16,right:16,zIndex:999,

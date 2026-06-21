@@ -11,3 +11,127 @@ html, body, #root {
 body {
   font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
+
+/* ──────────────────────────────────────────────────────────────
+   TABELAS — rolagem horizontal em telas pequenas
+   ────────────────────────────────────────────────────────────── */
+.table-scroll {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* ──────────────────────────────────────────────────────────────
+   SIDEBAR — vira gaveta (drawer) em telas pequenas
+   ────────────────────────────────────────────────────────────── */
+.sidebar-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 998;
+}
+
+.mobile-topbar {
+  display: none;
+}
+
+.mobile-hamburger {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  width: 34px;
+  height: 34px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  padding: 0;
+}
+
+.mobile-hamburger span {
+  display: block;
+  height: 2px;
+  width: 100%;
+  background: #0f172a;
+  border-radius: 2px;
+}
+
+@media (max-width: 860px) {
+  /* Sidebar fica fixa fora da tela, deslizando para dentro quando aberta */
+  .app-sidebar {
+    position: fixed !important;
+    top: 0;
+    left: 0;
+    height: 100vh;
+    z-index: 999;
+    transform: translateX(-100%);
+    transition: transform 0.25s ease;
+  }
+
+  .app-sidebar--open {
+    transform: translateX(0);
+  }
+
+  .sidebar-close-btn {
+    display: flex !important;
+    align-items: center;
+    justify-content: center;
+  }
+
+  /* Barra superior com o botão de menu */
+  .mobile-topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 16px;
+    background: #fff;
+    border-bottom: 1px solid #e2e8f0;
+    position: sticky;
+    top: 0;
+    z-index: 50;
+  }
+
+  /* Painel do sino não pode vazar da tela */
+  .sino-painel {
+    width: min(320px, calc(100vw - 32px)) !important;
+    right: -8px !important;
+  }
+
+  /* Cabeçalho de página — empilha título e ações */
+  .ph-header {
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    gap: 10px !important;
+    padding: 14px 16px !important;
+  }
+
+  /* ── Grids de cards — colapsam para 1 ou 2 colunas no celular ── */
+  div[style*="grid-template-columns:repeat(2,1fr)"],
+  div[style*="grid-template-columns:repeat(3,1fr)"],
+  div[style*="grid-template-columns:repeat(4,1fr)"],
+  div[style*="grid-template-columns:repeat(5,1fr)"],
+  div[style*="grid-template-columns:1fr 1fr 1fr"],
+  div[style*="grid-template-columns:1fr 1fr"],
+  div[style*="grid-template-columns:auto 1fr"],
+  div[style*="grid-template-columns:repeat(auto-fill,minmax(215px,1fr))"] {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+/* Em tablets pequenos, grids de 4-5 colunas ficam em 2 para não espremer demais */
+@media (min-width: 861px) and (max-width: 1100px) {
+  div[style*="grid-template-columns:repeat(4,1fr)"],
+  div[style*="grid-template-columns:repeat(5,1fr)"] {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+}
+
+/* Telas muito pequenas — reduz paddings dos containers de conteúdo */
+@media (max-width: 480px) {
+  div[style*="padding:22px"],
+  div[style*="padding:24px"],
+  div[style*="padding:20px"] {
+    padding: 14px !important;
+  }
+}
+

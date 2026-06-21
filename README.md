@@ -54,8 +54,25 @@ src/
   App.jsx       → aplicativo completo (todas as telas e componentes)
   storage.js    → adaptador de persistência (localStorage)
   main.jsx      → ponto de entrada React
-  index.css     → estilos base
+  index.css     → estilos base + regras responsivas
 ```
+
+## Responsividade
+
+O layout se adapta a três faixas de tela:
+
+- **Acima de 1100px** (desktop): menu lateral fixo, grids completos (3, 4 ou 5 colunas).
+- **861px–1100px** (tablet): grids de 4-5 colunas colapsam para 2 colunas.
+- **Até 860px** (celular): o menu lateral some e vira uma gaveta deslizante
+  acionada por um botão "☰" na barra superior; todos os grids de cards passam
+  para 1 coluna; tabelas ganham rolagem horizontal própria; o cabeçalho de cada
+  página empilha título e botões de ação verticalmente.
+
+Essas regras estão em `src/index.css`. Como o app usa estilos inline (`style={{}}`)
+em quase todo o código, a forma usada para sobrepor esses estilos em telas
+pequenas foi via seletores de atributo CSS com `!important` (ex.:
+`div[style*="grid-template-columns:repeat(4,1fr)"]`), que é o único caso em
+que uma regra de uma folha de estilos externa pode vencer um estilo inline.
 
 ## Stack
 
