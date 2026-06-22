@@ -1,6 +1,18 @@
 import { useState, useMemo, useRef, useEffect } from "react";
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, Legend } from "recharts";
-import storage from "./storage";
+import {
+  login as apiLogin,
+  listarUsuarios, criarUsuario, editarUsuario,
+  listarRegistros, criarRegistro, atualizarRegistro,
+  listarMetas, salvarMeta,
+  listarAuditoria, registrarAuditoriaBackend,
+  listarHistCalc, salvarHistCalc,
+  listarOcorrencias, criarOcorrencia, atualizarOcorrencia, excluirOcorrencia,
+  listarRelatoriosTurno, criarRelatorioTurno, excluirRelatorioTurno,
+  listarParadas, criarParada, atualizarParada, excluirParada,
+  listarEscala, definirEscala, excluirEscala,
+  assinarMudancas,
+} from "./api";
 
 // ══════════════════════════════════════════════════════════════════
 // CONSTANTES
@@ -189,7 +201,7 @@ function PainelPrevisao({ registros, metas, turnoAtual, dataHoje }) {
         )}
       </div>
 
-      <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:10}}>
+      <div className="grid-2" style={{display:"grid",gap:10}}>
         {previsoes.map(p=>{
           const m    = metas[p.campo]||LIMITES_MOAGEM[p.campo];
           const icon = p.tendencia==="subindo"?"↗":"subindo"===p.tendencia?"↗":p.tendencia==="caindo"?"↘":"→";
@@ -420,14 +432,35 @@ function Campo({campo,valor,onChange}) {
 // ══════════════════════════════════════════════════════════════════
 function SinoNotificacoes({ registros, setPagina }) {
   const [aberto, setAberto] = useState(false);
+  const [pos, setPos] = useState({ top: 0, left: 0 });
   const ref = useRef(null);
+  const btnRef = useRef(null);
 
   // Fecha ao clicar fora
   useEffect(()=>{
-    const handle = (e) => { if(ref.current && !ref.current.contains(e.target)) setAberto(false); };
+    const handle = (e) => {
+      if(ref.current && !ref.current.contains(e.target)) setAberto(false);
+    };
     document.addEventListener("mousedown", handle);
     return ()=>document.removeEventListener("mousedown", handle);
   },[]);
+
+  // Recalcula a posição do painel sempre que abrir (ou a tela mudar de tamanho)
+  useEffect(()=>{
+    if(!aberto) return;
+    const calcular = () => {
+      const r = btnRef.current?.getBoundingClientRect();
+      if(!r) return;
+      const larguraPainel = Math.min(320, window.innerWidth - 24);
+      // Mantém o painel dentro da tela, alinhado pela direita do sino
+      let left = r.right - larguraPainel;
+      left = Math.max(12, Math.min(left, window.innerWidth - larguraPainel - 12));
+      setPos({ top: r.bottom + 8, left, width: larguraPainel });
+    };
+    calcular();
+    window.addEventListener("resize", calcular);
+    return ()=>window.removeEventListener("resize", calcular);
+  },[aberto]);
 
   const hoje       = new Date().toISOString().split("T")[0];
   const turnoAtual = detectarTurno();
@@ -489,12 +522,12 @@ function SinoNotificacoes({ registros, setPagina }) {
   return (
     <div ref={ref} style={{position:"relative"}}>
       {/* Botão do sino */}
-      <button onClick={()=>setAberto(x=>!x)}
+      <button ref={btnRef} onClick={()=>setAberto(x=>!x)}
         style={{position:"relative",width:34,height:34,borderRadius:8,
           background:aberto?"rgba(14,165,233,.2)":"rgba(255,255,255,.06)",
           border:`1px solid ${aberto?"rgba(14,165,233,.4)":"rgba(255,255,255,.08)"}`,
           cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",
-          fontSize:16,transition:"all .2s"}}>
+          fontSize:16,transition:"all .2s",flexShrink:0}}>
         🔔
         {/* Badge de contagem */}
         {total>0&&(
@@ -509,12 +542,12 @@ function SinoNotificacoes({ registros, setPagina }) {
         )}
       </button>
 
-      {/* Painel de notificações */}
+      {/* Painel de notificações — posição fixa calculada em JS para nunca vazar da tela */}
       {aberto&&(
-        <div className="sino-painel" style={{position:"absolute",top:"calc(100% + 8px)",right:0,
-          width:320,background:"#fff",borderRadius:12,
-          boxShadow:"0 8px 32px rgba(0,0,0,.2)",
-          border:"1px solid #e2e8f0",zIndex:500,overflow:"hidden"}}>
+        <div className="sino-painel" style={{position:"fixed",top:pos.top,left:pos.left,
+          width:pos.width||320,background:"#fff",borderRadius:12,
+          boxShadow:"0 8px 32px rgba(0,0,0,.25)",
+          border:"1px solid #e2e8f0",zIndex:1100,overflow:"hidden"}}>
 
           {/* Header */}
           <div style={{padding:"12px 16px",background:"#0f172a",
@@ -838,6 +871,9 @@ function Sidebar({user, pagina, setPagina, onLogout, registros, modoEscuro, setM
     {id:"gerencial",      icon:"📈", label:"Painel Gerencial", perfis:["Lider","Supervisor"]},
     {id:"kpis_moagem",    icon:"🧪", label:"KPIs Moagem",      perfis:["Operador","Lider","Supervisor"]},
     {id:"mais_kpis",      icon:"⚙",  label:"+ KPIs",           perfis:["Operador","Lider","Supervisor"]},
+    {id:"paradas",        icon:"⏱",  label:"Paradas de Fábrica", perfis:["Operador","Lider","Supervisor"]},
+    {id:"escala",         icon:"📅", label:"Escala de Funções", perfis:["Operador","Lider","Supervisor"]},
+    {id:"ocorrencias",    icon:"📝", label:"Ocorrências",      perfis:["Operador","Lider","Supervisor"]},
     {id:"calculadora",    icon:"🧮", label:"Calculadora",      perfis:["Operador","Lider","Supervisor"]},
     {id:"rastreabilidade",icon:"🔍", label:"Rastreabilidade",  perfis:["Lider","Supervisor"]},
     {id:"verificacao",    icon:"✅",  label:"Verificação",      perfis:["Lider","Supervisor"]},
@@ -1058,6 +1094,8 @@ const TIPO_AUDITORIA_COR = {
   USUARIO_DESATIVADO:{ c:"#dc2626", bg:"#fff1f2", icon:"🔒",  label:"Usuário Desativado"},
   USUARIO_REATIVADO: { c:"#16a34a", bg:"#f0fdf4", icon:"🔓",  label:"Usuário Reativado" },
   LOGIN:             { c:"#0ea5e9", bg:"#e0f2fe", icon:"🔑",  label:"Login"             },
+  PARADA_VALIDADA:   { c:"#16a34a", bg:"#f0fdf4", icon:"⏱",  label:"Parada Validada"   },
+  PARADA_REJEITADA:  { c:"#dc2626", bg:"#fff1f2", icon:"⏱",  label:"Parada Rejeitada"  },
 };
 
 // ══════════════════════════════════════════════════════════════════
@@ -1550,7 +1588,7 @@ function TelaGerencial({ registros, metas=METAS_DEFAULT }) {
         </div>
 
         {/* Cards de resumo */}
-        <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12,marginBottom:18}}>
+        <div className="grid-4" style={{display:"grid",gap:12,marginBottom:18}}>
           <SC label="Média do Período" value={`${mediaGeral}${meta?.un||""}`} icon="📊" color="#8b5cf6"/>
           <SC label="Conformidade"     value={`${conformGeral}%`}              icon="✅" color="#16a34a"/>
           <SC label="Tendência"
@@ -1605,7 +1643,7 @@ function TelaGerencial({ registros, metas=METAS_DEFAULT }) {
             </ResponsiveContainer>
           </div>
 
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,marginBottom:16}}>
+          <div className="grid-2" style={{display:"grid",gap:16,marginBottom:16}}>
             {/* Conformidade por turno */}
             <div style={{background:"#fff",borderRadius:11,padding:20,border:"1px solid #e2e8f0",
               boxShadow:"0 1px 4px rgba(0,0,0,.05)"}}>
@@ -1844,7 +1882,7 @@ function MediaAoVivo({form, registrosTurno, turnoAtual, metas=METAS_DEFAULT}) {
         </div>
         <div style={{background:"rgba(255,255,255,.15)",borderRadius:5,padding:"2px 9px",fontSize:9,color:"#fff",fontFamily:"monospace",fontWeight:700,letterSpacing:.5}}>AO VIVO 🔴</div>
       </div>
-      <div style={{padding:12,display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:9}}>
+      <div className="grid-3" style={{padding:12,display:"grid",gap:9}}>
         {CAMPOS_MEDIA.map(campo=>{
           const media=calcMedia(campo);
           const m=metas[campo];
@@ -1942,7 +1980,7 @@ function GrupoJust({grupo, form, justificativas, onChangeValor, onChangeJust, me
         </div>
       </div>
       {aberto&&(
-        <div style={{padding:13,background:"#fff",display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(215px,1fr))",gap:11}}>
+        <div className="grid-autofill-215" style={{padding:13,background:"#fff",display:"grid",gap:11}}>
           {grupo.campos.map(c=><CampoJust key={c} campo={c} valor={form[c]??""} justificativa={justificativas[c]??""} onChangeValor={onChangeValor} onChangeJust={onChangeJust} metas={metas}/>)}
         </div>
       )}
@@ -1990,7 +2028,7 @@ function TelaKpisMoagem({user, registros, setRegistros, metas=METAS_DEFAULT}) {
     setTentou(true);
     if(!podeSalvar) return;
     const justArr=desvios.map(c=>({campo:c,label:metas[c]?.label,valor:form[c],un:metas[c]?.un,justificativa:just[c]}));
-    const novo={id:registros.length+1,...form,operador:user.nome,status:"PENDENTE",desvios,justificativas:{...just},justificativasArr:justArr,tipo:"moagem",obsLivre:obsLivre.trim()||null,...Object.fromEntries(Object.keys(metas).map(k=>[k,form[k]===""?null:parseFloat(form[k])]))};
+    const novo={id:`temp_${Date.now()}`,...form,operador:user.nome,status:"PENDENTE",desvios,justificativas:{...just},justificativasArr:justArr,tipo:"moagem",obsLivre:obsLivre.trim()||null,...Object.fromEntries(Object.keys(metas).map(k=>[k,form[k]===""?null:parseFloat(form[k])]))};
     setRegistros(r=>[novo,...r]); setForm(emptyForm()); setJust({}); setObsLivre(""); setTentou(false); setView("lista");
     setSaved("✅ KPI Moagem registrado com sucesso!"); setTimeout(()=>setSaved(""),3000);
   };
@@ -2030,7 +2068,7 @@ function TelaKpisMoagem({user, registros, setRegistros, metas=METAS_DEFAULT}) {
         {/* Identificação */}
         <div style={{background:"#fff",borderRadius:9,padding:14,border:"1px solid #e2e8f0",marginBottom:14}}>
           <div style={{fontSize:11,fontWeight:700,color:"#0f172a",marginBottom:10}}>🕐 Identificação</div>
-          <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:11}}>
+          <div className="grid-4" style={{display:"grid",gap:11}}>
             {[["Data","date","data"],["Hora","time","hora"]].map(([l,t,k])=>(
               <div key={k}><label style={{display:"block",fontSize:9,fontWeight:700,color:"#64748b",textTransform:"uppercase",letterSpacing:.5,fontFamily:"monospace",marginBottom:4}}>{l}</label><input type={t} value={form[k]} onChange={e=>setForm(f=>({...f,[k]:e.target.value}))} style={{width:"100%",padding:"8px 10px",borderRadius:6,border:"1.5px solid #e2e8f0",fontSize:12,fontFamily:"monospace",boxSizing:"border-box"}}/></div>
             ))}
@@ -2121,7 +2159,7 @@ function TelaKpisMoagem({user, registros, setRegistros, metas=METAS_DEFAULT}) {
       <div style={{padding:22}}>
         {savedMsg&&<div style={{background:"#dcfce7",border:"1px solid #86efac",borderRadius:7,padding:"9px 15px",marginBottom:14,color:"#16a34a",fontWeight:600,fontSize:13}}>{savedMsg}</div>}
         {/* Painel médias por turno */}
-        <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:12,marginBottom:18}}>
+        <div className="grid-3" style={{display:"grid",gap:12,marginBottom:18}}>
           {TURNOS_CONFIG.map(tc=>{
             const regs=registros.filter(r=>r.tipo==="moagem"&&r.turno===tc.id);
             const mp=regs.length?+(regs.reduce((a,r)=>a+(r.ProteinaFarelo||0),0)/regs.length).toFixed(2):null;
@@ -2133,7 +2171,7 @@ function TelaKpisMoagem({user, registros, setRegistros, metas=METAS_DEFAULT}) {
                   <div style={{color:"#fff",fontSize:11,fontWeight:800}}>{tc.label}</div>
                   <div style={{color:"rgba(255,255,255,.7)",fontSize:9,fontFamily:"monospace"}}>{tc.horario} · {regs.length} reg.</div>
                 </div>
-                <div style={{padding:"9px 12px",display:"grid",gridTemplateColumns:"1fr 1fr",gap:7}}>
+                <div className="grid-2" style={{padding:"9px 12px",display:"grid",gap:7}}>
                   {[["⌀ Proteína",mp,"%",sp],["⌀ Umid. Farelo",mu,"%",su]].map(([l,v,u,s])=>(
                     <div key={l}><div style={{fontSize:9,color:"#94a3b8",fontFamily:"monospace",marginBottom:2}}>{l}</div><div style={{fontSize:15,fontWeight:800,fontFamily:"monospace",color:v?COR[s].t:"#cbd5e1"}}>{v??"-"}{v?u:""}</div></div>
                   ))}
@@ -2142,7 +2180,7 @@ function TelaKpisMoagem({user, registros, setRegistros, metas=METAS_DEFAULT}) {
             );
           })}
         </div>
-        <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12,marginBottom:16}}>
+        <div className="grid-4" style={{display:"grid",gap:12,marginBottom:16}}>
           <SC label="Total" value={filtrados.length} icon="📋" color="#0ea5e9"/>
           <SC label="Validados" value={filtrados.filter(r=>r.status==="VALIDADO").length} icon="✅" color="#16a34a"/>
           <SC label="Pendentes" value={filtrados.filter(r=>r.status==="PENDENTE").length} icon="⏳" color="#d97706"/>
@@ -2199,11 +2237,17 @@ function TelaKpisMoagem({user, registros, setRegistros, metas=METAS_DEFAULT}) {
                       </div>
                     )}
                   </div>
-                  <div style={{flexShrink:0}}>
-                    {user.perfil!=="Operador"&&r.status==="PENDENTE"&&(
-                      <div style={{display:"flex",gap:5}}>
-                        <button onClick={()=>setRegistros(rs=>rs.map(x=>x.id===r.id?{...x,status:"VALIDADO"}:x))} style={{padding:"5px 10px",background:"#dcfce7",border:"1px solid #86efac",borderRadius:5,color:"#16a34a",fontWeight:700,fontSize:11,cursor:"pointer"}}>✅ Validar</button>
-                        <button onClick={()=>setRegistros(rs=>rs.map(x=>x.id===r.id?{...x,status:"REJEITADO"}:x))} style={{padding:"5px 10px",background:"#fee2e2",border:"1px solid #fca5a5",borderRadius:5,color:"#dc2626",fontWeight:700,fontSize:11,cursor:"pointer"}}>❌ Rejeitar</button>
+                  <div style={{flexShrink:0,textAlign:"right"}}>
+                    {r.status==="PENDENTE" && user.perfil!=="Operador" && (
+                      <span style={{fontSize:9,color:"#94a3b8",fontFamily:"monospace",
+                        background:"#f8fafc",border:"1px solid #e2e8f0",borderRadius:4,
+                        padding:"3px 8px",whiteSpace:"nowrap"}}>
+                        validar em Verificação →
+                      </span>
+                    )}
+                    {r.status!=="PENDENTE" && r.validadoPor && (
+                      <div style={{fontSize:9,color:"#94a3b8",fontFamily:"monospace",whiteSpace:"nowrap"}}>
+                        por {r.validadoPor.split(" ")[0]}
                       </div>
                     )}
                   </div>
@@ -2247,7 +2291,7 @@ function CardLam({nome,dados,onChange}) {
         <div style={{display:"flex",alignItems:"center",gap:7}}><span style={{fontSize:13}}>⚙</span><span style={{fontWeight:800,fontSize:11,color:td?"#dc2626":"#f1f5f9",fontFamily:"monospace"}}>{nome}</span></div>
         <div style={{display:"flex",alignItems:"center",gap:5}}>{td&&<span style={{fontSize:9,background:"#fee2e2",color:"#dc2626",padding:"1px 6px",borderRadius:2,fontFamily:"monospace",fontWeight:700}}>DESVIO</span>}<span style={{fontSize:9,color:td?"#94a3b8":"#475569",fontFamily:"monospace"}}>{p}/3</span></div>
       </div>
-      <div style={{padding:11,display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
+      <div className="grid-3" style={{padding:11,display:"grid",gap:8}}>
         <CE campo="TempRolo" valor={d.TempRolo??""} onChange={(c,v)=>onChange(k,c,v)}/>
         <CE campo="TempMancal" valor={d.TempMancal??""} onChange={(c,v)=>onChange(k,c,v)}/>
         <CE campo="EspessuraLamina" valor={d.EspessuraLamina??""} onChange={(c,v)=>onChange(k,c,v)}/>
@@ -2272,7 +2316,7 @@ function CardQbr({nome,dados,onChange}) {
             <span style={{background:"#0ea5e9",color:"#fff",fontSize:9,fontWeight:800,padding:"2px 7px",borderRadius:3,fontFamily:"monospace",letterSpacing:.5}}>1ª QUEBRA</span>
             <span style={{fontSize:9,color:"#94a3b8",fontFamily:"monospace"}}>{p1}/1</span>
           </div>
-          <div style={{display:"grid",gridTemplateColumns:"auto 1fr",gap:7,alignItems:"center"}}>
+          <div className="grid-auto-1fr" style={{display:"grid",gap:7,alignItems:"center"}}>
             <div style={{background:"#e0f2fe",border:"1px solid #bae6fd",borderRadius:5,padding:"5px 9px",textAlign:"center"}}>
               <div style={{fontSize:8,fontWeight:700,color:"#64748b",textTransform:"uppercase",fontFamily:"monospace",marginBottom:1}}>Peneira</div>
               <div style={{fontSize:15,fontWeight:800,color:"#0ea5e9",fontFamily:"monospace"}}>#6</div>
@@ -2285,7 +2329,7 @@ function CardQbr({nome,dados,onChange}) {
             <span style={{background:"#7c3aed",color:"#fff",fontSize:9,fontWeight:800,padding:"2px 7px",borderRadius:3,fontFamily:"monospace",letterSpacing:.5}}>2ª QUEBRA</span>
             <span style={{fontSize:9,color:"#94a3b8",fontFamily:"monospace"}}>{p2}/3</span>
           </div>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6}}>
+          <div className="grid-3" style={{display:"grid",gap:6}}>
             {[["Q2_Peneira6","#6","#7c3aed","#f5f3ff","#e9d5ff"],["Q2_Peneira8","#8","#7c3aed","#f5f3ff","#e9d5ff"],["Q2_Fundo","FUNDO","#16a34a","#f0fdf4","#bbf7d0"]].map(([c,lbl,cor,bg,bd])=>(
               <div key={c} style={{display:"flex",flexDirection:"column",gap:4}}>
                 <div style={{background:bg,border:`1px solid ${bd}`,borderRadius:4,padding:"4px 0",textAlign:"center"}}>
@@ -2322,7 +2366,7 @@ function CardGranu({dados,onChange}) {
         <div style={{display:"flex",alignItems:"center",gap:7}}><span style={{fontSize:13}}>🔬</span><span style={{fontWeight:800,fontSize:11,color:td?"#dc2626":"#f1f5f9",fontFamily:"monospace"}}>GRANULOMETRIA DO FARELO</span></div>
         {td&&<span style={{fontSize:9,background:"#fee2e2",color:"#dc2626",padding:"1px 6px",borderRadius:2,fontFamily:"monospace",fontWeight:700}}>DESVIO</span>}
       </div>
-      <div style={{padding:11,display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+      <div className="grid-2" style={{padding:11,display:"grid",gap:10}}>
         <CE campo="Malha283" valor={d.Malha283??""} onChange={(c,v)=>onChange("GRANULOMETRIA",c,v)}/>
         <CE campo="Malha200" valor={d.Malha200??""} onChange={(c,v)=>onChange("GRANULOMETRIA",c,v)}/>
       </div>
@@ -2357,7 +2401,7 @@ function TelaMaisKpis({user,registros,setRegistros}) {
   const totalCampos=LAMINADORES.length*3+QUEBRADORES.length*4+2;
   const totalPreench=useMemo(()=>{let n=0;LAMINADORES.forEach(l=>{const d=equip[l.replace(" ","_")]||{};["TempRolo","TempMancal","EspessuraLamina"].forEach(c=>{if(d[c]!==""&&d[c]!==null&&d[c]!==undefined)n++;});});QUEBRADORES.forEach(q=>{const d=equip[q.replace(" ","_")]||{};["Q1_Peneira6","Q2_Peneira6","Q2_Peneira8","Q2_Fundo"].forEach(c=>{if(d[c]!==""&&d[c]!==null&&d[c]!==undefined)n++;});});const g=equip["GRANULOMETRIA"]||{};["Malha283","Malha200"].forEach(c=>{if(g[c]!==""&&g[c]!==null&&g[c]!==undefined)n++;});return n;},[equip]);
   const prog=Math.round((totalPreench/totalCampos)*100);
-  const salvar=(obs="")=>{const novo={id:Date.now(),...cab,operador:user.nome,status:"PENDENTE",equipamentos:{...equip},totalDesvios:desvios.length,desviosDetalhe:[...desvios],obs,tipo:"mais_kpi"};setRegistros(r=>[novo,...r]);setEquip(emptyEquip());setView("lista");setSaved("✅ +KPI registrado!");setTimeout(()=>setSaved(""),3000);};
+  const salvar=(obs="")=>{const novo={id:`temp_${Date.now()}`,...cab,operador:user.nome,status:"PENDENTE",equipamentos:{...equip},totalDesvios:desvios.length,desviosDetalhe:[...desvios],obs,tipo:"mais_kpi"};setRegistros(r=>[novo,...r]);setEquip(emptyEquip());setView("lista");setSaved("✅ +KPI registrado!");setTimeout(()=>setSaved(""),3000);};
   const mkpiRegs=registros.filter(r=>r.tipo==="mais_kpi");
   const filtrados=mkpiRegs.filter(r=>filtroTurno==="Todos"||r.turno===filtroTurno);
 
@@ -2382,15 +2426,15 @@ function TelaMaisKpis({user,registros,setRegistros}) {
       <div style={{padding:22}}>
         <div style={{background:"#fff",borderRadius:9,padding:13,border:"1px solid #e2e8f0",marginBottom:18}}>
           <div style={{fontSize:11,fontWeight:700,color:"#0f172a",marginBottom:9}}>🕐 Identificação</div>
-          <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10}}>
+          <div className="grid-3" style={{display:"grid",gap:10}}>
             {[["Data","date","data"],["Hora","time","hora"]].map(([l,t,k])=>(
               <div key={k}><label style={{display:"block",fontSize:9,fontWeight:700,color:"#64748b",textTransform:"uppercase",letterSpacing:.5,fontFamily:"monospace",marginBottom:3}}>{l}</label><input type={t} value={cab[k]} onChange={e=>setCab(c=>({...c,[k]:e.target.value}))} style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1.5px solid #e2e8f0",fontSize:12,fontFamily:"monospace",boxSizing:"border-box"}}/></div>
             ))}
             <div><label style={{display:"block",fontSize:9,fontWeight:700,color:"#64748b",textTransform:"uppercase",letterSpacing:.5,fontFamily:"monospace",marginBottom:3}}>Turno</label><select value={cab.turno} onChange={e=>setCab(c=>({...c,turno:e.target.value}))} style={{width:"100%",padding:"7px 10px",borderRadius:6,border:"1.5px solid #e2e8f0",fontSize:12,background:"#fff",boxSizing:"border-box"}}>{["NOITE","MANHÃ","TARDE"].map(t=><option key={t}>{t}</option>)}</select></div>
           </div>
         </div>
-        <div style={{marginBottom:20}}><Sep bg="#1e293b" icon="⚙" titulo="LAMINADORES" sub="Temp. Rolo · Mancal · Espessura"/><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:11}}>{LAMINADORES.map(l=><CardLam key={l} nome={l} dados={equip} onChange={handleEquip}/>)}</div></div>
-        <div style={{marginBottom:20}}><Sep bg="#0c4a6e" icon="🔩" titulo="QUEBRADORES" sub="1ª Quebra #6 · 2ª Quebra #6 #8 Fundo"/><div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:11}}>{QUEBRADORES.map(q=><CardQbr key={q} nome={q} dados={equip} onChange={handleEquip}/>)}</div></div>
+        <div style={{marginBottom:20}}><Sep bg="#1e293b" icon="⚙" titulo="LAMINADORES" sub="Temp. Rolo · Mancal · Espessura"/><div className="grid-2" style={{display:"grid",gap:11}}>{LAMINADORES.map(l=><CardLam key={l} nome={l} dados={equip} onChange={handleEquip}/>)}</div></div>
+        <div style={{marginBottom:20}}><Sep bg="#0c4a6e" icon="🔩" titulo="QUEBRADORES" sub="1ª Quebra #6 · 2ª Quebra #6 #8 Fundo"/><div className="grid-3" style={{display:"grid",gap:11}}>{QUEBRADORES.map(q=><CardQbr key={q} nome={q} dados={equip} onChange={handleEquip}/>)}</div></div>
         <div style={{marginBottom:20}}><Sep bg="#0c4a6e" icon="🔬" titulo="GRANULOMETRIA DO FARELO"/><CardGranu dados={equip} onChange={handleEquip}/></div>
         {desvios.length>0&&(<div style={{background:"#fef3c7",border:"1px solid #fde68a",borderRadius:7,padding:"10px 14px",marginBottom:12}}><div style={{fontWeight:700,color:"#92400e",fontSize:12,marginBottom:6}}>⚠ {desvios.length} desvio{desvios.length>1?"s":""}:</div><div style={{display:"flex",flexWrap:"wrap",gap:5}}>{desvios.map((d,i)=><span key={i} style={{background:"#fee2e2",color:"#dc2626",fontSize:10,fontFamily:"monospace",fontWeight:700,padding:"2px 8px",borderRadius:3}}>{d.equip.replace("LAMINADOR ","LAM-").replace("QUEBRADOR ","QBR-")} · {LIMITES_MAIS_KPI[d.campo]?.label}: {d.valor}{LIMITES_MAIS_KPI[d.campo]?.un}</span>)}</div></div>)}
         <button onClick={()=>desvios.length>0?setSD(true):salvar()} style={{width:"100%",padding:12,background:"linear-gradient(135deg,#dc2626,#b91c1c)",color:"#fff",border:"none",borderRadius:8,fontSize:14,fontWeight:700,cursor:"pointer",boxShadow:"0 4px 14px rgba(220,38,38,.2)"}}>💾 Salvar Registro de +KPIs</button>
@@ -2405,7 +2449,7 @@ function TelaMaisKpis({user,registros,setRegistros}) {
         action={<button onClick={()=>setView("form")} style={{padding:"8px 15px",background:"linear-gradient(135deg,#dc2626,#b91c1c)",color:"#fff",border:"none",borderRadius:7,fontSize:13,fontWeight:700,cursor:"pointer",boxShadow:"0 4px 12px rgba(220,38,38,.2)"}}>+ Novo Registro</button>}/>
       <div style={{padding:22}}>
         {savedMsg&&<div style={{background:"#dcfce7",border:"1px solid #86efac",borderRadius:7,padding:"9px 14px",marginBottom:12,color:"#16a34a",fontWeight:600,fontSize:13}}>{savedMsg}</div>}
-        <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12,marginBottom:16}}>
+        <div className="grid-4" style={{display:"grid",gap:12,marginBottom:16}}>
           <SC label="Total" value={mkpiRegs.length} icon="⚙" color="#dc2626"/>
           <SC label="Lam. c/ Desvio" value={mkpiRegs.filter(r=>r.desviosDetalhe?.some(d=>d.equip?.startsWith("LAM"))).length} icon="🌡" color="#f59e0b"/>
           <SC label="Qbr. c/ Desvio" value={mkpiRegs.filter(r=>r.desviosDetalhe?.some(d=>d.equip?.startsWith("QBR"))).length} icon="🔩" color="#8b5cf6"/>
@@ -2441,8 +2485,19 @@ function TelaMaisKpis({user,registros,setRegistros}) {
                       {lams.length>0&&(<div style={{marginBottom:6}}><div style={{fontSize:9,fontWeight:700,color:"#64748b",textTransform:"uppercase",letterSpacing:.5,fontFamily:"monospace",marginBottom:4}}>⚙ Laminadores</div><div style={{display:"flex",flexWrap:"wrap",gap:5}}>{lams.map(l=>{const k=l.replace(" ","_"),d=r.equipamentos[k];const sr=chk("TempRolo",d.TempRolo),sm=chk("TempMancal",d.TempMancal),se=chk("EspessuraLamina",d.EspessuraLamina);const temDev=[sr,sm,se].some(s=>s==="danger");return(<div key={k} style={{background:temDev?"#fff1f2":"#f8fafc",border:`1px solid ${temDev?"#fca5a5":"#e2e8f0"}`,borderRadius:5,padding:"3px 7px",fontSize:10,fontFamily:"monospace"}}><span style={{fontWeight:700,color:temDev?"#dc2626":"#1e293b"}}>{l.replace("LAMINADOR ","LAM-")}</span><div style={{display:"flex",gap:5,marginTop:2}}>{d.TempRolo&&<span style={{color:COR[sr].t}}>R:{d.TempRolo}°C{sr==="danger"?"⚠":""}</span>}{d.TempMancal&&<span style={{color:COR[sm].t}}>M:{d.TempMancal}°C{sm==="danger"?"⚠":""}</span>}{d.EspessuraLamina&&<span style={{color:COR[se].t}}>E:{d.EspessuraLamina}mm{se==="danger"?"⚠":""}</span>}</div></div>);})}</div></div>)}
                       {qbrs.length>0&&(<div><div style={{fontSize:9,fontWeight:700,color:"#64748b",textTransform:"uppercase",letterSpacing:.5,fontFamily:"monospace",marginBottom:4}}>🔩 Quebradores</div><div style={{display:"flex",flexWrap:"wrap",gap:5}}>{qbrs.map(q=>{const k=q.replace(" ","_"),d=r.equipamentos[k];const s1=chk("Q1_Peneira6",d.Q1_Peneira6),s2a=chk("Q2_Peneira6",d.Q2_Peneira6),s2b=chk("Q2_Peneira8",d.Q2_Peneira8),s2c=chk("Q2_Fundo",d.Q2_Fundo);const temDev=[s1,s2a,s2b,s2c].some(s=>s==="danger");return(<div key={k} style={{background:temDev?"#fff1f2":"#f8fafc",border:`1px solid ${temDev?"#fca5a5":"#e2e8f0"}`,borderRadius:5,padding:"3px 7px",fontSize:10,fontFamily:"monospace"}}><span style={{fontWeight:700,color:temDev?"#dc2626":"#1e293b"}}>{q.replace("QUEBRADOR ","QBR-")}</span><div style={{display:"flex",gap:4,marginTop:2,flexWrap:"wrap"}}>{d.Q1_Peneira6!==""&&d.Q1_Peneira6!==undefined&&<span style={{color:COR[s1].t}}>1ªQ#6:{d.Q1_Peneira6}%{s1==="danger"?"⚠":""}</span>}{d.Q2_Peneira6!==""&&d.Q2_Peneira6!==undefined&&<span style={{color:COR[s2a].t}}>2ªQ#6:{d.Q2_Peneira6}%</span>}{d.Q2_Peneira8!==""&&d.Q2_Peneira8!==undefined&&<span style={{color:COR[s2b].t}}>#8:{d.Q2_Peneira8}%</span>}{d.Q2_Fundo!==""&&d.Q2_Fundo!==undefined&&<span style={{color:COR[s2c].t}}>Fundo:{d.Q2_Fundo}%{s2c==="danger"?"⚠":""}</span>}</div></div>);})}</div></div>)}
                     </div>
-                    <div style={{flexShrink:0}}>
-                      {user.perfil!=="Operador"&&r.status==="PENDENTE"&&(<div style={{display:"flex",gap:5}}><button onClick={()=>setRegistros(rs=>rs.map(x=>x.id===r.id?{...x,status:"VALIDADO"}:x))} style={{padding:"4px 9px",background:"#dcfce7",border:"1px solid #86efac",borderRadius:4,color:"#16a34a",fontWeight:700,fontSize:11,cursor:"pointer"}}>✅</button><button onClick={()=>setRegistros(rs=>rs.map(x=>x.id===r.id?{...x,status:"REJEITADO"}:x))} style={{padding:"4px 9px",background:"#fee2e2",border:"1px solid #fca5a5",borderRadius:4,color:"#dc2626",fontWeight:700,fontSize:11,cursor:"pointer"}}>❌</button></div>)}
+                    <div style={{flexShrink:0,textAlign:"right"}}>
+                      {r.status==="PENDENTE" && user.perfil!=="Operador" && (
+                        <span style={{fontSize:9,color:"#94a3b8",fontFamily:"monospace",
+                          background:"#f8fafc",border:"1px solid #e2e8f0",borderRadius:4,
+                          padding:"3px 7px",whiteSpace:"nowrap"}}>
+                          validar em Verificação →
+                        </span>
+                      )}
+                      {r.status!=="PENDENTE" && r.validadoPor && (
+                        <div style={{fontSize:9,color:"#94a3b8",fontFamily:"monospace",whiteSpace:"nowrap"}}>
+                          por {r.validadoPor.split(" ")[0]}
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -2496,7 +2551,7 @@ function TelaCalculadora({ user, histCalc, setHistCalc }) {
       <PH title="🧮 Calculadora de Produção"
         subtitle="Estimativa de Soja e Farelo fora das balanças"/>
       <div style={{padding:22}}>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:20,alignItems:"start"}}>
+        <div className="grid-2" style={{display:"grid",gap:20,alignItems:"start"}}>
 
           {/* Formulário */}
           <div style={{background:"#fff",borderRadius:11,padding:20,
@@ -2526,7 +2581,7 @@ function TelaCalculadora({ user, histCalc, setHistCalc }) {
                 fontWeight:700,outline:"none",boxSizing:"border-box",marginBottom:11}}/>
 
             {tipo==="umidade" && (
-              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9,marginBottom:11}}>
+              <div className="grid-2" style={{display:"grid",gap:9,marginBottom:11}}>
                 {[["Umidade Entrada (%)",ue,setUe],["Umidade Saída (%)",us,setUs]].map(([l,v,set])=>(
                   <div key={l}>
                     <label style={{display:"block",fontSize:9,fontWeight:700,color:"#64748b",
@@ -2557,7 +2612,7 @@ function TelaCalculadora({ user, histCalc, setHistCalc }) {
           <div>
             {calc ? (
               <>
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
+                <div className="grid-2" style={{display:"grid",gap:10,marginBottom:10}}>
                   {[["🌾 Soja",calc.soja,"ton","#f59e0b","#fffbeb"],
                     ["📦 Farelo",calc.farelo,"ton","#8b5cf6","#faf5ff"],
                     ["💧 Óleo",calc.oleo,"ton","#10b981","#f0fdf4"],
@@ -2604,10 +2659,10 @@ function TelaCalculadora({ user, histCalc, setHistCalc }) {
                 <span style={{fontSize:10,color:"#94a3b8",fontFamily:"monospace"}}>
                   {histCalc.length} cálculo{histCalc.length!==1?"s":""} · persiste entre sessões
                 </span>
-                <button onClick={()=>setHistCalc([])}
+                <button onClick={()=>setHistCalc([])} title="Oculta da lista nesta sessão — não exclui do banco de dados"
                   style={{padding:"3px 10px",background:"#fee2e2",border:"1px solid #fca5a5",
                     borderRadius:5,color:"#dc2626",fontSize:10,fontWeight:700,cursor:"pointer"}}>
-                  🗑 Limpar
+                  🗑 Ocultar
                 </button>
               </div>
             </div>
@@ -2662,23 +2717,8 @@ function TelaRastreabilidade({ registros, metas=METAS_DEFAULT }) {
   const [dataIni,     setDataIni]     = useState(hoje.toISOString().split("T")[0]);
   const [dataFim,     setDataFim]     = useState(hoje.toISOString().split("T")[0]);
   const [diaSel,      setDiaSel]      = useState(hoje.toISOString().split("T")[0]);
-  const [filtroStatus,setFiltroStatus]= useState("Todos");
   const [filtroDesvio,setFiltroDesvio]= useState("Todos");
   const [filtroTurno, setFiltroTurno] = useState("Todos");
-  const [visualizacao,setVisualizacao]= useState("boletins"); // "boletins" | "registros"
-  const [modal,       setModal]       = useState(false);
-  const [formBol,     setFormBol]     = useState({
-    data: hoje.toISOString().split("T")[0],
-    tipoFarelo:"Moído", lote:"", destino:"Granel Interno"
-  });
-  const [boletins, setBoletins] = useState([
-    {id:1,data:"2026-01-13",lider:"Diogo Martins",tipoFarelo:"Moído",lote:"LOT-240113",
-     proteina_media:46.30,umid_media:12.16,oleo_media:2.33,producao_total:1721.5,
-     destino:"Granel Interno",status:"APROVADO"},
-    {id:2,data:"2026-01-14",lider:"Diogo Martins",tipoFarelo:"Moído",lote:"LOT-240114",
-     proteina_media:46.19,umid_media:12.32,oleo_media:2.30,producao_total:1646.0,
-     destino:"Exportação",status:"APROVADO"},
-  ]);
 
   const MESES = ["Janeiro","Fevereiro","Março","Abril","Maio","Junho",
                  "Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"];
@@ -2702,18 +2742,6 @@ function TelaRastreabilidade({ registros, metas=METAS_DEFAULT }) {
     });
   },[registros,modoFiltro,mesSel,anoSel,dataIni,dataFim,diaSel,filtroTurno,filtroDesvio]);
 
-  // Filtro de boletins
-  const boletinsFiltrados = useMemo(()=>{
-    return boletins.filter(b=>{
-      if(!b.data)return false;
-      if(modoFiltro==="mes"){const[bA,bM]=b.data.split("-");if(bA!==anoSel||bM!==mesSel)return false;}
-      else if(modoFiltro==="periodo"){if(b.data<dataIni||b.data>dataFim)return false;}
-      else if(modoFiltro==="dia"){if(b.data!==diaSel)return false;}
-      if(filtroStatus!=="Todos"&&b.status!==filtroStatus)return false;
-      return true;
-    });
-  },[boletins,modoFiltro,mesSel,anoSel,dataIni,dataFim,diaSel,filtroStatus]);
-
   const labelPeriodo = useMemo(()=>{
     if(modoFiltro==="mes")    return `${MESES[parseInt(mesSel)-1]} / ${anoSel}`;
     if(modoFiltro==="dia")    return `Dia ${diaSel.split("-").reverse().join("/")}`;
@@ -2735,17 +2763,7 @@ function TelaRastreabilidade({ registros, metas=METAS_DEFAULT }) {
     };
   },[registrosFiltrados]);
 
-  const mediasDia = useMemo(()=>{
-    const r=registros.filter(x=>x.data===formBol.data&&x.ProteinaFarelo&&x.tipo==="moagem");
-    if(!r.length)return null;
-    return{
-      proteina:(r.reduce((a,x)=>a+x.ProteinaFarelo,0)/r.length).toFixed(2),
-      umid:(r.reduce((a,x)=>a+x.UmidFarelo,0)/r.length).toFixed(2),
-      oleo:(r.reduce((a,x)=>a+x.OleoFarelo,0)/r.length).toFixed(2),
-    };
-  },[registros,formBol.data]);
-
-  // Componente do painel de filtros (reutilizado)
+  // Componente do painel de filtros
   const PainelFiltros = () => (
     <div style={{background:"#fff",borderRadius:12,padding:18,border:"1px solid #e2e8f0",
       boxShadow:"0 1px 4px rgba(0,0,0,.05)",marginBottom:16}}>
@@ -2865,310 +2883,113 @@ function TelaRastreabilidade({ registros, metas=METAS_DEFAULT }) {
             ))}
           </div>
         </div>
-        {visualizacao==="boletins" && (
-          <div>
-            <div style={{fontSize:9,fontWeight:700,color:"#64748b",textTransform:"uppercase",
-              letterSpacing:.5,fontFamily:"monospace",marginBottom:6}}>Status Boletim</div>
-            <div style={{display:"flex",gap:4}}>
-              {[["Todos","Todos"],["APROVADO","Aprovado"],["REPROVADO","Reprovado"]].map(([v,l])=>(
-                <button key={v} onClick={()=>setFiltroStatus(v)}
-                  style={{padding:"4px 9px",borderRadius:12,border:"1.5px solid",
-                    borderColor:filtroStatus===v?"#10b981":"#e2e8f0",
-                    background:filtroStatus===v?"#d1fae5":"#fff",
-                    color:filtroStatus===v?"#059669":"#64748b",
-                    fontSize:10,fontWeight:600,cursor:"pointer",fontFamily:"monospace"}}>
-                  {l}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
       </div>
     </div>
   );
 
   return (
     <div>
-      <PH title="🔍 Rastreabilidade" subtitle={`Boletins e registros — ${labelPeriodo}`}
-        action={
-          <button onClick={()=>setModal(true)}
-            style={{padding:"8px 15px",background:"linear-gradient(135deg,#10b981,#059669)",
-              color:"#fff",border:"none",borderRadius:7,fontSize:13,fontWeight:700,cursor:"pointer"}}>
-            + Novo Boletim
-          </button>
-        }/>
+      <PH title="🔍 Rastreabilidade" subtitle={`Registros KPI — ${labelPeriodo}`}/>
       <div style={{padding:22}}>
-
-        {/* Abas */}
-        <div style={{display:"flex",gap:4,background:"#f1f5f9",padding:4,borderRadius:9,
-          width:"fit-content",marginBottom:16}}>
-          {[["boletins","📦 Boletins de Qualidade"],["registros","📋 Registros KPI"]].map(([v,l])=>(
-            <button key={v} onClick={()=>setVisualizacao(v)}
-              style={{padding:"7px 16px",borderRadius:7,border:"none",fontSize:12,fontWeight:600,
-                cursor:"pointer",background:visualizacao===v?"#fff":"transparent",
-                color:visualizacao===v?"#0f172a":"#64748b",
-                boxShadow:visualizacao===v?"0 1px 4px rgba(0,0,0,.1)":"none"}}>
-              {l}
-            </button>
-          ))}
-        </div>
 
         {/* Painel de filtros */}
         <PainelFiltros/>
 
         {/* Cards de resumo */}
-        {visualizacao==="boletins" ? (
-          <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12,marginBottom:16}}>
-            <SC label="Total Boletins"  value={boletinsFiltrados.length}                           icon="📦" color="#8b5cf6"/>
-            <SC label="Aprovados"       value={boletinsFiltrados.filter(b=>b.status==="APROVADO").length} icon="✅" color="#16a34a"/>
-            <SC label="Reprovados"      value={boletinsFiltrados.filter(b=>b.status==="REPROVADO").length} icon="❌" color="#dc2626"/>
-            <SC label="Período"         value={labelPeriodo} icon="📅" color="#0ea5e9"/>
+        {stats && (
+          <div className="grid-5" style={{display:"grid",gap:10,marginBottom:16}}>
+            <SC label="Registros"     value={stats.total}              icon="📋" color="#0ea5e9"/>
+            <SC label="Com Desvio"    value={stats.comDev}             icon="⚠" color="#dc2626"/>
+            <SC label="Conformidade"  value={`${stats.conformidade}%`} icon="✅" color="#16a34a"/>
+            <SC label="⌀ Proteína"   value={stats.avgProt?`${stats.avgProt}%`:"—"} icon="🔬"
+              color={stats.avgProt?chk("ProteinaFarelo",stats.avgProt)==="ok"?"#16a34a":"#dc2626":"#64748b"}/>
+            <SC label="⌀ Umid. Farelo" value={stats.avgUmid?`${stats.avgUmid}%`:"—"} icon="💧"
+              color={stats.avgUmid?chk("UmidFarelo",stats.avgUmid)==="ok"?"#16a34a":"#dc2626":"#64748b"}/>
+          </div>
+        )}
+
+        {/* Tabela de registros */}
+        {registrosFiltrados.length===0 ? (
+          <div style={{background:"#fff",borderRadius:11,padding:38,textAlign:"center",
+            border:"1px solid #e2e8f0",color:"#94a3b8"}}>
+            <div style={{fontSize:32,marginBottom:9}}>🔍</div>
+            <div style={{fontSize:13,fontWeight:600,color:"#64748b"}}>
+              Nenhum registro encontrado para o período
+            </div>
           </div>
         ) : (
-          stats && (
-            <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:10,marginBottom:16}}>
-              <SC label="Registros"     value={stats.total}              icon="📋" color="#0ea5e9"/>
-              <SC label="Com Desvio"    value={stats.comDev}             icon="⚠" color="#dc2626"/>
-              <SC label="Conformidade"  value={`${stats.conformidade}%`} icon="✅" color="#16a34a"/>
-              <SC label="⌀ Proteína"   value={stats.avgProt?`${stats.avgProt}%`:"—"} icon="🔬"
-                color={stats.avgProt?chk("ProteinaFarelo",stats.avgProt)==="ok"?"#16a34a":"#dc2626":"#64748b"}/>
-              <SC label="⌀ Umid. Farelo" value={stats.avgUmid?`${stats.avgUmid}%`:"—"} icon="💧"
-                color={stats.avgUmid?chk("UmidFarelo",stats.avgUmid)==="ok"?"#16a34a":"#dc2626":"#64748b"}/>
-            </div>
-          )
-        )}
-
-        {/* ── ABA BOLETINS ── */}
-        {visualizacao==="boletins" && (
-          boletinsFiltrados.length===0 ? (
-            <div style={{background:"#fff",borderRadius:11,padding:38,textAlign:"center",
-              border:"1px solid #e2e8f0",color:"#94a3b8"}}>
-              <div style={{fontSize:32,marginBottom:9}}>🔍</div>
-              <div style={{fontSize:13,fontWeight:600,color:"#64748b"}}>
-                Nenhum boletim no período selecionado
-              </div>
-            </div>
-          ) : boletinsFiltrados.map(b=>{
-            const ps=chk("ProteinaFarelo",b.proteina_media);
-            const us=chk("UmidFarelo",b.umid_media);
-            return (
-              <div key={b.id} style={{background:"#fff",borderRadius:10,padding:16,
-                border:"1px solid #e2e8f0",marginBottom:9,
-                borderLeft:`4px solid ${b.status==="APROVADO"?"#16a34a":"#dc2626"}`,
-                boxShadow:"0 1px 3px rgba(0,0,0,.04)"}}>
-                <div style={{display:"flex",justifyContent:"space-between",
-                  alignItems:"flex-start",gap:12}}>
-                  <div style={{flex:1}}>
-                    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8,flexWrap:"wrap"}}>
-                      <span style={{fontFamily:"monospace",fontSize:12,fontWeight:800,color:"#0f172a"}}>
-                        {b.lote||`LOT-${b.data?.replace(/-/g,"")}`}
-                      </span>
-                      <span style={{fontSize:11,color:"#64748b"}}>· {b.data}</span>
-                      <span style={{fontSize:10,background:"#f1f5f9",color:"#64748b",
-                        padding:"2px 7px",borderRadius:3,fontFamily:"monospace"}}>
-                        {b.tipoFarelo}
-                      </span>
-                      <Badge s={b.status}/>
-                    </div>
-                    <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
-                      {[["🔬 Prot",`${b.proteina_media}%`,ps],
-                        ["💧 Umid",`${b.umid_media}%`,us],
-                        ["🫙 Óleo",`${b.oleo_media}%`,"neutral"],
-                        ["⚖ Prod",`${(b.producao_total||0).toLocaleString("pt-BR")}t`,"neutral"]
-                      ].map(([l,v,s])=>(
-                        <span key={l} style={{fontSize:11,fontFamily:"monospace",fontWeight:600,
-                          color:COR[s].t,background:COR[s].f,border:`1px solid ${COR[s].b}`,
-                          padding:"2px 8px",borderRadius:3}}>
-                          {l}: {v}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                  <div style={{textAlign:"right",fontSize:11,color:"#64748b",flexShrink:0}}>
-                    <div>Destino: <b style={{color:"#1e293b"}}>{b.destino}</b></div>
-                    <div>Líder: <b style={{color:"#1e293b"}}>{b.lider}</b></div>
-                  </div>
-                </div>
-              </div>
-            );
-          })
-        )}
-
-        {/* ── ABA REGISTROS KPI ── */}
-        {visualizacao==="registros" && (
-          registrosFiltrados.length===0 ? (
-            <div style={{background:"#fff",borderRadius:11,padding:38,textAlign:"center",
-              border:"1px solid #e2e8f0",color:"#94a3b8"}}>
-              <div style={{fontSize:32,marginBottom:9}}>🔍</div>
-              <div style={{fontSize:13,fontWeight:600,color:"#64748b"}}>
-                Nenhum registro encontrado para o período
-              </div>
-            </div>
-          ) : (
-            <div style={{background:"#fff",borderRadius:10,overflow:"hidden",
-              border:"1px solid #e2e8f0",boxShadow:"0 1px 4px rgba(0,0,0,.05)"}}>
-              <div className="table-scroll"><table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
-                <thead>
-                  <tr style={{background:"#0f172a"}}>
-                    {["Data","Hora","Turno","Operador","Proteína","Umid. Farelo","Óleo","Status","Desvios"].map(h=>(
-                      <th key={h} style={{textAlign:"left",padding:"9px 12px",fontSize:9,
-                        color:"#94a3b8",fontWeight:600,textTransform:"uppercase",
-                        letterSpacing:.5,borderBottom:"1px solid #1e293b",
-                        fontFamily:"monospace",whiteSpace:"nowrap"}}>
-                        {h}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {registrosFiltrados.slice(0,50).map((r,ri)=>{
-                    const ps=chk("ProteinaFarelo",r.ProteinaFarelo);
-                    const us=chk("UmidFarelo",r.UmidFarelo);
-                    const os=chk("OleoFarelo",r.OleoFarelo);
-                    const tc=TURNOS_CONFIG.find(t=>t.id===r.turno);
-                    const td=r.desvios?.length>0;
-                    return (
-                      <tr key={r.id} style={{borderBottom:"1px solid #f1f5f9",
-                        background:td?"#fff7f7":ri%2===0?"#ffffff":"#fafafa"}}>
-                        <td style={{padding:"8px 12px",fontFamily:"monospace",fontSize:11,
-                          color:"#64748b",whiteSpace:"nowrap"}}>{r.data}</td>
-                        <td style={{padding:"8px 12px",fontFamily:"monospace",fontWeight:700,
-                          color:"#0f172a"}}>{r.hora}</td>
-                        <td style={{padding:"8px 12px"}}>
-                          {tc&&<span style={{fontSize:9,background:tc.bg,color:tc.cor,
-                            padding:"2px 6px",borderRadius:3,fontFamily:"monospace",
-                            fontWeight:700,border:`1px solid ${tc.cor}30`}}>{r.turno}</span>}
-                        </td>
-                        <td style={{padding:"8px 12px",color:"#1e293b",whiteSpace:"nowrap"}}>
-                          {r.operador?.split(" ")[0]}
-                        </td>
-                        <td style={{padding:"8px 12px",fontFamily:"monospace",fontWeight:700,
-                          color:COR[ps].t,whiteSpace:"nowrap"}}>
-                          {r.ProteinaFarelo?`${r.ProteinaFarelo}%`:"—"}
-                        </td>
-                        <td style={{padding:"8px 12px",fontFamily:"monospace",fontWeight:700,
-                          color:COR[us].t,whiteSpace:"nowrap"}}>
-                          {r.UmidFarelo?`${r.UmidFarelo}%`:"—"}
-                        </td>
-                        <td style={{padding:"8px 12px",fontFamily:"monospace",fontWeight:700,
-                          color:COR[os].t,whiteSpace:"nowrap"}}>
-                          {r.OleoFarelo?`${r.OleoFarelo}%`:"—"}
-                        </td>
-                        <td style={{padding:"8px 12px"}}><Badge s={r.status}/></td>
-                        <td style={{padding:"8px 12px"}}>
-                          {td
-                            ? <span style={{fontSize:10,background:"#fee2e2",color:"#dc2626",
-                                padding:"2px 7px",borderRadius:3,fontFamily:"monospace",fontWeight:700}}>
-                                ⚠ {r.desvios.length}
-                              </span>
-                            : <span style={{fontSize:10,color:"#86efac",fontFamily:"monospace"}}>✓</span>}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table></div>
-              {registrosFiltrados.length>50&&(
-                <div style={{padding:"10px 16px",background:"#f8fafc",borderTop:"1px solid #e2e8f0",
-                  fontSize:11,color:"#94a3b8",textAlign:"center",fontFamily:"monospace"}}>
-                  Exibindo 50 de {registrosFiltrados.length} registros
-                </div>
-              )}
-            </div>
-          )
-        )}
-      </div>
-
-      {/* Modal novo boletim */}
-      {modal && (
-        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.5)",display:"flex",
-          alignItems:"center",justifyContent:"center",zIndex:100,padding:20}}>
-          <div style={{background:"#fff",borderRadius:13,padding:24,width:"100%",maxWidth:440,
-            boxShadow:"0 24px 64px rgba(0,0,0,.3)"}}>
-            <h3 style={{fontSize:14,fontWeight:800,margin:"0 0 14px"}}>+ Novo Boletim de Qualidade</h3>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
-              {[["Data","date","data"],["Nº Lote","text","lote"]].map(([l,t,k])=>(
-                <div key={k}>
-                  <label style={{display:"block",fontSize:9,fontWeight:700,color:"#64748b",
-                    textTransform:"uppercase",letterSpacing:.5,fontFamily:"monospace",marginBottom:3}}>
-                    {l}
-                  </label>
-                  <input type={t} value={formBol[k]||""} onChange={e=>setFormBol(f=>({...f,[k]:e.target.value}))}
-                    style={{width:"100%",padding:"8px 10px",borderRadius:6,border:"1.5px solid #e2e8f0",
-                      fontSize:12,fontFamily:"monospace",boxSizing:"border-box"}}/>
-                </div>
-              ))}
-            </div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
-              {[["Tipo Farelo","tipoFarelo",["Moído","Floculado","Hipro"]],
-                ["Destino","destino",["Granel Interno","Exportação","Big Bag","Ensacado"]]
-               ].map(([l,k,opts])=>(
-                <div key={k}>
-                  <label style={{display:"block",fontSize:9,fontWeight:700,color:"#64748b",
-                    textTransform:"uppercase",letterSpacing:.5,fontFamily:"monospace",marginBottom:3}}>
-                    {l}
-                  </label>
-                  <select value={formBol[k]} onChange={e=>setFormBol(f=>({...f,[k]:e.target.value}))}
-                    style={{width:"100%",padding:"8px 10px",borderRadius:6,border:"1.5px solid #e2e8f0",
-                      fontSize:12,background:"#fff",boxSizing:"border-box"}}>
-                    {opts.map(o=><option key={o}>{o}</option>)}
-                  </select>
-                </div>
-              ))}
-            </div>
-            {mediasDia ? (
-              <div style={{background:"#f0fdf4",border:"1px solid #86efac",borderRadius:7,
-                padding:10,marginBottom:10,display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
-                <div style={{gridColumn:"1/-1",fontSize:10,fontWeight:700,color:"#16a34a",
-                  marginBottom:4,fontFamily:"monospace"}}>
-                  📊 Médias calculadas automaticamente do dia:
-                </div>
-                {[["Proteína",`${mediasDia.proteina}%`],
-                  ["Umidade",`${mediasDia.umid}%`],
-                  ["Óleo",`${mediasDia.oleo}%`]
-                ].map(([l,v])=>(
-                  <div key={l} style={{fontSize:11,fontFamily:"monospace"}}>
-                    <span style={{color:"#94a3b8"}}>{l}: </span>
-                    <b style={{color:"#0f172a"}}>{v}</b>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div style={{background:"#fef3c7",border:"1px solid #fde68a",borderRadius:7,
-                padding:"8px 12px",fontSize:11,color:"#92400e",marginBottom:10}}>
-                ⚠ Nenhum registro KPI encontrado para esta data.
+          <div style={{background:"#fff",borderRadius:10,overflow:"hidden",
+            border:"1px solid #e2e8f0",boxShadow:"0 1px 4px rgba(0,0,0,.05)"}}>
+            <div className="table-scroll"><table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+              <thead>
+                <tr style={{background:"#0f172a"}}>
+                  {["Data","Hora","Turno","Operador","Proteína","Umid. Farelo","Óleo","Status","Desvios"].map(h=>(
+                    <th key={h} style={{textAlign:"left",padding:"9px 12px",fontSize:9,
+                      color:"#94a3b8",fontWeight:600,textTransform:"uppercase",
+                      letterSpacing:.5,borderBottom:"1px solid #1e293b",
+                      fontFamily:"monospace",whiteSpace:"nowrap"}}>
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {registrosFiltrados.slice(0,50).map((r,ri)=>{
+                  const ps=chk("ProteinaFarelo",r.ProteinaFarelo);
+                  const us=chk("UmidFarelo",r.UmidFarelo);
+                  const os=chk("OleoFarelo",r.OleoFarelo);
+                  const tc=TURNOS_CONFIG.find(t=>t.id===r.turno);
+                  const td=r.desvios?.length>0;
+                  return (
+                    <tr key={r.id} style={{borderBottom:"1px solid #f1f5f9",
+                      background:td?"#fff7f7":ri%2===0?"#ffffff":"#fafafa"}}>
+                      <td style={{padding:"8px 12px",fontFamily:"monospace",fontSize:11,
+                        color:"#64748b",whiteSpace:"nowrap"}}>{r.data}</td>
+                      <td style={{padding:"8px 12px",fontFamily:"monospace",fontWeight:700,
+                        color:"#0f172a"}}>{r.hora}</td>
+                      <td style={{padding:"8px 12px"}}>
+                        {tc&&<span style={{fontSize:9,background:tc.bg,color:tc.cor,
+                          padding:"2px 6px",borderRadius:3,fontFamily:"monospace",
+                          fontWeight:700,border:`1px solid ${tc.cor}30`}}>{r.turno}</span>}
+                      </td>
+                      <td style={{padding:"8px 12px",color:"#1e293b",whiteSpace:"nowrap"}}>
+                        {r.operador?.split(" ")[0]}
+                      </td>
+                      <td style={{padding:"8px 12px",fontFamily:"monospace",fontWeight:700,
+                        color:COR[ps].t,whiteSpace:"nowrap"}}>
+                        {r.ProteinaFarelo?`${r.ProteinaFarelo}%`:"—"}
+                      </td>
+                      <td style={{padding:"8px 12px",fontFamily:"monospace",fontWeight:700,
+                        color:COR[us].t,whiteSpace:"nowrap"}}>
+                        {r.UmidFarelo?`${r.UmidFarelo}%`:"—"}
+                      </td>
+                      <td style={{padding:"8px 12px",fontFamily:"monospace",fontWeight:700,
+                        color:COR[os].t,whiteSpace:"nowrap"}}>
+                        {r.OleoFarelo?`${r.OleoFarelo}%`:"—"}
+                      </td>
+                      <td style={{padding:"8px 12px"}}><Badge s={r.status}/></td>
+                      <td style={{padding:"8px 12px"}}>
+                        {td
+                          ? <span style={{fontSize:10,background:"#fee2e2",color:"#dc2626",
+                              padding:"2px 7px",borderRadius:3,fontFamily:"monospace",fontWeight:700}}>
+                              ⚠ {r.desvios.length}
+                            </span>
+                          : <span style={{fontSize:10,color:"#86efac",fontFamily:"monospace"}}>✓</span>}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table></div>
+            {registrosFiltrados.length>50&&(
+              <div style={{padding:"10px 16px",background:"#f8fafc",borderTop:"1px solid #e2e8f0",
+                fontSize:11,color:"#94a3b8",textAlign:"center",fontFamily:"monospace"}}>
+                Exibindo 50 de {registrosFiltrados.length} registros
               </div>
             )}
-            <div style={{display:"flex",gap:8}}>
-              <button
-                onClick={()=>{
-                  if(!mediasDia)return;
-                  const ps=parseFloat(mediasDia.proteina),us=parseFloat(mediasDia.umid);
-                  const ok=(ps>=46&&ps<=46.5)&&(us>=12&&us<=12.5);
-                  setBoletins(b=>[...b,{
-                    id:b.length+1,...formBol,lider:"Diogo Martins",
-                    proteina_media:+mediasDia.proteina,umid_media:+mediasDia.umid,
-                    oleo_media:+mediasDia.oleo,producao_total:0,
-                    status:ok?"APROVADO":"REPROVADO"
-                  }]);
-                  setModal(false);
-                }}
-                disabled={!mediasDia}
-                style={{flex:1,padding:10,
-                  background:mediasDia?"linear-gradient(135deg,#10b981,#059669)":"#e2e8f0",
-                  color:mediasDia?"#fff":"#94a3b8",border:"none",borderRadius:7,
-                  fontSize:12,fontWeight:700,cursor:mediasDia?"pointer":"not-allowed"}}>
-                📋 Emitir Boletim
-              </button>
-              <button onClick={()=>setModal(false)}
-                style={{padding:"10px 13px",background:"#f1f5f9",color:"#64748b",
-                  border:"none",borderRadius:7,cursor:"pointer",fontSize:11}}>
-                Cancelar
-              </button>
-            </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }
@@ -3219,6 +3040,12 @@ function RegistroItem({ r, user, onValidar, onRejeitar }) {
               </span>
             )}
             <Badge s={r.status}/>
+            {r.status!=="PENDENTE" && r.validadoPor && (
+              <span style={{fontSize:9,color:"#94a3b8",fontFamily:"monospace"}}>
+                por {r.validadoPor.split(" ")[0]}
+                {r.dataValidacao && ` · ${new Date(r.dataValidacao).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"})}`}
+              </span>
+            )}
           </div>
 
           {/* Valores dos KPIs */}
@@ -3319,20 +3146,26 @@ function TelaVerificacao({ registros, setRegistros, auditoria, setAuditoria, use
   const totalMaisKpi     = registros.filter(r=>r.status==="PENDENTE"&&r.tipo==="mais_kpi").length;
 
   const handleValidar = (id) => {
-    setRegistros(rs=>rs.map(x=>x.id===id?{...x,status:"VALIDADO"}:x));
+    setRegistros(rs=>rs.map(x=>x.id===id?{
+      ...x, status:"VALIDADO", validadoPor:user?.nome||"—", dataValidacao:new Date().toISOString()
+    }:x));
     if(setAuditoria) registrarAuditoria(setAuditoria,"REGISTRO_VALIDADO",user,{registroId:id});
     setSalvos("Registro validado!");
     setTimeout(()=>setSalvos(""),2500);
   };
   const handleRejeitar = (id) => {
-    setRegistros(rs=>rs.map(x=>x.id===id?{...x,status:"REJEITADO"}:x));
+    setRegistros(rs=>rs.map(x=>x.id===id?{
+      ...x, status:"REJEITADO", validadoPor:user?.nome||"—", dataValidacao:new Date().toISOString()
+    }:x));
     if(setAuditoria) registrarAuditoria(setAuditoria,"REGISTRO_REJEITADO",user,{registroId:id});
     setSalvos("Registro rejeitado.");
     setTimeout(()=>setSalvos(""),2500);
   };
   const validarTodos = () => {
     setRegistros(rs=>rs.map(x=>
-      pendentes.find(p=>p.id===x.id) ? {...x,status:"VALIDADO"} : x
+      pendentes.find(p=>p.id===x.id)
+        ? {...x, status:"VALIDADO", validadoPor:user?.nome||"—", dataValidacao:new Date().toISOString()}
+        : x
     ));
     if(setAuditoria) registrarAuditoria(setAuditoria,"REGISTRO_VALIDADO",user,{obs:`${pendentes.length} registros validados em lote`});
     setSalvos(`${pendentes.length} registros validados!`);
@@ -3368,7 +3201,7 @@ function TelaVerificacao({ registros, setRegistros, auditoria, setAuditoria, use
         )}
 
         {/* Cards de resumo */}
-        <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12,marginBottom:18}}>
+        <div className="grid-4" style={{display:"grid",gap:12,marginBottom:18}}>
           <SC label="Pendentes"    value={totalPendentes}                                    icon="⏳" color="#d97706"/>
           <SC label="Com Desvio"   value={totalComDesvio}                                    icon="⚠" color="#dc2626"/>
           <SC label="+KPIs Pend."  value={totalMaisKpi}                                      icon="⚙" color="#8b5cf6"/>
@@ -3458,7 +3291,7 @@ function TelaVerificacao({ registros, setRegistros, auditoria, setAuditoria, use
               <RegistroItem
                 key={r.id}
                 r={r}
-                user={{perfil:"Lider"}}
+                user={user}
                 onValidar={handleValidar}
                 onRejeitar={handleRejeitar}
               />
@@ -3481,7 +3314,7 @@ function TelaAcoes({user}) {
     <div>
       <PH title="🚨 Ações Corretivas" subtitle="Registro de desvios e ações operacionais" action={<button onClick={()=>setModal(true)} style={{padding:"8px 14px",background:"linear-gradient(135deg,#f59e0b,#d97706)",color:"#fff",border:"none",borderRadius:7,fontSize:13,fontWeight:700,cursor:"pointer"}}>+ Nova Ação</button>}/>
       <div style={{padding:22}}>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:16}}><SC label="Total" value={acoes.length} icon="📋" color="#0ea5e9"/><SC label="Em Aberto" value={acoes.filter(a=>a.status==="ABERTO").length} icon="🔓" color="#dc2626"/></div>
+        <div className="grid-2" style={{display:"grid",gap:12,marginBottom:16}}><SC label="Total" value={acoes.length} icon="📋" color="#0ea5e9"/><SC label="Em Aberto" value={acoes.filter(a=>a.status==="ABERTO").length} icon="🔓" color="#dc2626"/></div>
         {acoes.map(a=>(
           <div key={a.id} style={{background:"#fff",borderRadius:9,padding:14,border:"1px solid #e2e8f0",marginBottom:8,borderLeft:`4px solid ${a.status==="CONCLUIDO"?"#16a34a":"#f59e0b"}`,boxShadow:"0 1px 3px rgba(0,0,0,.04)"}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:12}}>
@@ -3499,7 +3332,7 @@ function TelaAcoes({user}) {
 // ══════════════════════════════════════════════════════════════════
 // RELATÓRIOS — filtros precisos por período, turno, tipo e desvio
 // ══════════════════════════════════════════════════════════════════
-function TelaRelatorios({ registros, user, metas=METAS_DEFAULT }) {
+function TelaRelatorios({ registros, user, metas=METAS_DEFAULT, relatoriosTurno=[], setRelatoriosTurno }) {
   // ── Alertas pendentes (visível para Lider e Supervisor) ────────
   const alertas = useMemo(()=>{
     const lista = [];
@@ -3674,12 +3507,73 @@ Conformidade: ${stats?.conformidade??0}% | Desvios: ${stats?.comDesvio??0} | Mé
     janela.print();
   };
 
+  // ── Relatório do Líder — modal de descrição do turno ───────────
+  const [modalRelatorio, setModalRelatorio] = useState(false);
+  const [salvandoRel,    setSalvandoRel]    = useState(false);
+  const [erroRel,        setErroRel]        = useState("");
+  const turnoAtualRel = detectarTurno();
+  const podeRelatar   = user.perfil==="Lider" || user.perfil==="Supervisor";
+  const [formRel, setFormRel] = useState({
+    data: hoje.toISOString().split("T")[0],
+    turno: turnoAtualRel,
+    descricao: "",
+    puxouHexano: false,
+    qtdHexano: "",
+  });
+
+  const abrirModalRelatorio = () => {
+    setFormRel({
+      data: new Date().toISOString().split("T")[0],
+      turno: detectarTurno(),
+      descricao: "",
+      puxouHexano: false,
+      qtdHexano: "",
+    });
+    setErroRel("");
+    setModalRelatorio(true);
+  };
+
+  const salvarRelatorioTurno = async () => {
+    if (!formRel.descricao.trim()) {
+      setErroRel("Descreva o que ocorreu no turno antes de salvar.");
+      return;
+    }
+    if (formRel.puxouHexano && (!formRel.qtdHexano || parseFloat(formRel.qtdHexano) <= 0)) {
+      setErroRel("Informe a quantidade de hexano puxada.");
+      return;
+    }
+    setSalvandoRel(true);
+    setErroRel("");
+    try {
+      const novo = await criarRelatorioTurno({
+        ...formRel,
+        qtdHexano: formRel.puxouHexano ? parseFloat(formRel.qtdHexano) : null,
+        autor: user.nome,
+        perfil: user.perfil,
+      });
+      if (setRelatoriosTurno) setRelatoriosTurno(prev => [novo, ...prev]);
+      setModalRelatorio(false);
+    } catch (e) {
+      setErroRel("Erro ao salvar: " + (e.message || e));
+    } finally {
+      setSalvandoRel(false);
+    }
+  };
+
   // ─── RENDER ──────────────────────────────────────────────────
   return (
     <div>
       <PH title="📄 Relatórios" subtitle={`${filtrados.length} registro${filtrados.length!==1?"s":""} · ${labelPeriodo}`}
         action={
-          <div style={{display:"flex",gap:8}}>
+          <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+            {podeRelatar && (
+              <button onClick={abrirModalRelatorio}
+                style={{padding:"8px 14px",background:"linear-gradient(135deg,#f59e0b,#d97706)",
+                  border:"none",borderRadius:7,fontSize:12,fontWeight:700,cursor:"pointer",color:"#fff",
+                  boxShadow:"0 4px 12px rgba(245,158,11,.25)",whiteSpace:"nowrap"}}>
+                📝 Relatório do Líder
+              </button>
+            )}
             <button onClick={()=>gerarRelatorioMensal(
                 registros, mesSel, anoSel, metas, user
               )}
@@ -3790,6 +3684,56 @@ Conformidade: ${stats?.conformidade??0}% | Desvios: ${stats?.comDesvio??0} | Mé
                   </button>
                 </div>
               ))}
+            </div>
+          </div>
+        )}
+
+        {/* ── RELATÓRIOS DO LÍDER REGISTRADOS ── */}
+        {relatoriosTurno.length > 0 && (
+          <div style={{marginBottom:20}}>
+            <div style={{fontSize:12,fontWeight:700,color:"#0f172a",marginBottom:10,
+              display:"flex",alignItems:"center",gap:8}}>
+              📝 Relatórios do Líder
+              <span style={{fontSize:10,background:"#fef3c7",color:"#d97706",padding:"2px 9px",
+                borderRadius:10,fontFamily:"monospace",fontWeight:700}}>
+                {relatoriosTurno.length}
+              </span>
+            </div>
+            <div style={{display:"flex",flexDirection:"column",gap:8}}>
+              {relatoriosTurno.slice(0,5).map(r=>{
+                const tc = TURNOS_CONFIG.find(t=>t.id===r.turno);
+                return (
+                  <div key={r.id} style={{background:"#fff",border:"1px solid #e2e8f0",
+                    borderRadius:9,padding:"12px 16px",borderLeft:"4px solid #f59e0b"}}>
+                    <div style={{display:"flex",justifyContent:"space-between",
+                      alignItems:"flex-start",gap:10,marginBottom:6}}>
+                      <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+                        <span style={{fontSize:12,fontWeight:700,color:"#0f172a"}}>
+                          {new Date(r.data+"T12:00:00").toLocaleDateString("pt-BR")}
+                        </span>
+                        {tc && (
+                          <span style={{fontSize:9,background:tc.bg,color:tc.cor,
+                            padding:"2px 7px",borderRadius:4,fontFamily:"monospace",fontWeight:700}}>
+                            {r.turno}
+                          </span>
+                        )}
+                        {r.puxouHexano && (
+                          <span style={{fontSize:9,background:"#e0f2fe",color:"#0284c7",
+                            padding:"2px 7px",borderRadius:4,fontFamily:"monospace",fontWeight:700}}>
+                            ⛽ Hexano: {r.qtdHexano}L
+                          </span>
+                        )}
+                      </div>
+                      <span style={{fontSize:10,color:"#94a3b8",fontFamily:"monospace",whiteSpace:"nowrap"}}>
+                        {r.autor}
+                      </span>
+                    </div>
+                    <div style={{fontSize:12,color:"#475569",lineHeight:1.5}}>
+                      {r.descricao}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
         )}
@@ -4000,7 +3944,7 @@ Conformidade: ${stats?.conformidade??0}% | Desvios: ${stats?.comDesvio??0} | Mé
 
         {/* ── CARDS DE RESUMO DO PERÍODO ── */}
         {stats && (
-          <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:10,marginBottom:18}}>
+          <div className="grid-5" style={{display:"grid",gap:10,marginBottom:18}}>
             {[
               ["Total Registros", stats.total,          "📋","#0ea5e9"],
               ["Com Desvio",      stats.comDesvio,      "⚠","#dc2626"],
@@ -4275,6 +4219,127 @@ Conformidade: ${stats?.conformidade??0}% | Desvios: ${stats?.comDesvio??0} | Mé
           </div>
         )}
       </div>
+
+      {/* Modal Relatório do Líder */}
+      {modalRelatorio && (
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.5)",display:"flex",
+          alignItems:"center",justifyContent:"center",zIndex:200,padding:20}}>
+          <div style={{background:"#fff",borderRadius:13,padding:24,width:"100%",maxWidth:480,
+            maxHeight:"90vh",overflowY:"auto",boxShadow:"0 24px 64px rgba(0,0,0,.3)"}}>
+            <h3 style={{fontSize:15,fontWeight:800,margin:"0 0 16px",color:"#0f172a"}}>
+              📝 Relatório do Líder — Descrição do Turno
+            </h3>
+
+            <div className="grid-2" style={{display:"grid",gap:10,marginBottom:14}}>
+              <div>
+                <label style={{display:"block",fontSize:9,fontWeight:700,color:"#64748b",
+                  textTransform:"uppercase",letterSpacing:.5,fontFamily:"monospace",marginBottom:4}}>
+                  Data
+                </label>
+                <input type="date" value={formRel.data}
+                  onChange={e=>setFormRel(f=>({...f,data:e.target.value}))}
+                  style={{width:"100%",padding:"8px 10px",borderRadius:6,border:"1.5px solid #e2e8f0",
+                    fontSize:12,fontFamily:"monospace",boxSizing:"border-box"}}/>
+              </div>
+              <div>
+                <label style={{display:"block",fontSize:9,fontWeight:700,color:"#64748b",
+                  textTransform:"uppercase",letterSpacing:.5,fontFamily:"monospace",marginBottom:4}}>
+                  Turno
+                </label>
+                <select value={formRel.turno}
+                  onChange={e=>setFormRel(f=>({...f,turno:e.target.value}))}
+                  style={{width:"100%",padding:"8px 10px",borderRadius:6,border:"1.5px solid #e2e8f0",
+                    fontSize:12,background:"#fff",boxSizing:"border-box"}}>
+                  {TURNOS_CONFIG.map(t=><option key={t.id} value={t.id}>{t.label}</option>)}
+                </select>
+              </div>
+            </div>
+
+            <div style={{marginBottom:14}}>
+              <label style={{display:"block",fontSize:9,fontWeight:700,color:"#64748b",
+                textTransform:"uppercase",letterSpacing:.5,fontFamily:"monospace",marginBottom:4}}>
+                Descrição do turno *
+              </label>
+              <textarea rows={5} value={formRel.descricao}
+                onChange={e=>setFormRel(f=>({...f,descricao:e.target.value}))}
+                placeholder="Descreva como foi o turno: produção, intercorrências, observações gerais..."
+                style={{width:"100%",padding:"9px 11px",borderRadius:7,border:"1.5px solid #e2e8f0",
+                  fontSize:12,resize:"vertical",boxSizing:"border-box",fontFamily:"inherit"}}/>
+            </div>
+
+            {/* Pergunta Puxou Hexano? */}
+            <div style={{background:"#f8fafc",border:"1px solid #e2e8f0",borderRadius:9,
+              padding:14,marginBottom:14}}>
+              <label style={{display:"block",fontSize:9,fontWeight:700,color:"#64748b",
+                textTransform:"uppercase",letterSpacing:.5,fontFamily:"monospace",marginBottom:8}}>
+                Puxou Hexano?
+              </label>
+              <div style={{display:"flex",gap:8,marginBottom:formRel.puxouHexano?12:0}}>
+                <button
+                  onClick={()=>setFormRel(f=>({...f,puxouHexano:true}))}
+                  style={{flex:1,padding:"9px 0",borderRadius:7,border:"1.5px solid",
+                    borderColor:formRel.puxouHexano?"#16a34a":"#e2e8f0",
+                    background:formRel.puxouHexano?"#f0fdf4":"#fff",
+                    color:formRel.puxouHexano?"#16a34a":"#64748b",
+                    fontSize:13,fontWeight:700,cursor:"pointer"}}>
+                  ✓ Sim
+                </button>
+                <button
+                  onClick={()=>setFormRel(f=>({...f,puxouHexano:false,qtdHexano:""}))}
+                  style={{flex:1,padding:"9px 0",borderRadius:7,border:"1.5px solid",
+                    borderColor:!formRel.puxouHexano?"#dc2626":"#e2e8f0",
+                    background:!formRel.puxouHexano?"#fff1f2":"#fff",
+                    color:!formRel.puxouHexano?"#dc2626":"#64748b",
+                    fontSize:13,fontWeight:700,cursor:"pointer"}}>
+                  ✕ Não
+                </button>
+              </div>
+
+              {formRel.puxouHexano && (
+                <div>
+                  <label style={{display:"block",fontSize:9,fontWeight:700,color:"#16a34a",
+                    textTransform:"uppercase",letterSpacing:.5,fontFamily:"monospace",marginBottom:4}}>
+                    Quantidade de Hexano (litros) *
+                  </label>
+                  <input type="number" step="0.1" min="0" value={formRel.qtdHexano}
+                    onChange={e=>setFormRel(f=>({...f,qtdHexano:e.target.value}))}
+                    placeholder="Ex: 120"
+                    style={{width:"100%",padding:"9px 11px",borderRadius:7,
+                      border:"1.5px solid #86efac",fontSize:13,fontFamily:"monospace",
+                      fontWeight:700,boxSizing:"border-box",background:"#fff"}}/>
+                </div>
+              )}
+              {!formRel.puxouHexano && (
+                <div style={{fontSize:10,color:"#94a3b8",fontFamily:"monospace"}}>
+                  Campo de quantidade desabilitado — selecione "Sim" para informar
+                </div>
+              )}
+            </div>
+
+            {erroRel && (
+              <div style={{background:"#fff1f2",border:"1px solid #fca5a5",borderRadius:6,
+                padding:"8px 12px",color:"#dc2626",fontSize:12,marginBottom:12}}>
+                {erroRel}
+              </div>
+            )}
+
+            <div style={{display:"flex",gap:8}}>
+              <button onClick={salvarRelatorioTurno} disabled={salvandoRel}
+                style={{flex:1,padding:11,
+                  background:salvandoRel?"#94a3b8":"linear-gradient(135deg,#f59e0b,#d97706)",
+                  color:"#fff",border:"none",borderRadius:8,fontSize:13,fontWeight:700,
+                  cursor:salvandoRel?"wait":"pointer"}}>
+                {salvandoRel?"Salvando...":"💾 Salvar Relatório"}
+              </button>
+              <button onClick={()=>setModalRelatorio(false)}
+                style={{padding:"11px 16px",background:"#f1f5f9",color:"#64748b",
+                  border:"none",borderRadius:8,cursor:"pointer",fontSize:12}}>
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -4282,13 +4347,21 @@ Conformidade: ${stats?.conformidade??0}% | Desvios: ${stats?.comDesvio??0} | Mé
 // ══════════════════════════════════════════════════════════════════
 // CADASTROS + EDITOR DE METAS KPI
 // ══════════════════════════════════════════════════════════════════
-function TelaCadastros({ user, metas=METAS_DEFAULT, setMetas, auditoria, setAuditoria }) {
+function TelaCadastros({ user, metas=METAS_DEFAULT, setMetas, auditoria, setAuditoria, usuarios, setUsuarios }) {
   const [aba,        setAba]        = useState("metas_kpi");
-  const [usuarios,   setUsuarios]   = useState(USUARIOS.map(u=>({...u,ativo:true})));
+  const [carregandoU,setCarregandoU]= useState(true);
   const [modal,      setModal]      = useState(false);
   const [editando,   setEditando]   = useState(null); // null = novo, id = editando
   const [uForm,      setUForm]      = useState({nome:"",email:"",perfil:"Operador",turno:"NOITE",senha:"1234"});
   const [confirmaId, setConfirmaId] = useState(null); // id para confirmar desativação
+
+  // ── Carrega usuários reais do Supabase ──────────────────────────
+  const carregarUsuarios = async () => {
+    try { setUsuarios(await listarUsuarios()); }
+    catch(e){ console.error("Erro ao carregar usuários:", e); }
+    finally { setCarregandoU(false); }
+  };
+  useEffect(()=>{ carregarUsuarios(); },[]);
 
   // ── Metas ──────────────────────────────────────────────────────
   const [editMetas, setEditMetas] = useState(()=>
@@ -4346,7 +4419,7 @@ function TelaCadastros({ user, metas=METAS_DEFAULT, setMetas, auditoria, setAudi
     return metas[k].min!==def.min||metas[k].max!==def.max;
   });
 
-  // ── Usuários ───────────────────────────────────────────────────
+  // ── Usuários — agora gravando direto no Supabase ────────────────
   const abrirNovo=()=>{
     setEditando(null);
     setUForm({nome:"",email:"",perfil:"Operador",turno:"NOITE",senha:"1234"});
@@ -4357,21 +4430,33 @@ function TelaCadastros({ user, metas=METAS_DEFAULT, setMetas, auditoria, setAudi
     setUForm({nome:u.nome,email:u.email,perfil:u.perfil,turno:u.turno,senha:u.senha});
     setModal(true);
   };
-  const salvarUsuario=()=>{
+  const salvarUsuario=async()=>{
     if(!uForm.nome||!uForm.email)return;
-    if(editando){
-      setUsuarios(us=>us.map(u=>u.id===editando?{...u,...uForm}:u));
-    } else {
-      setUsuarios(us=>[...us,{id:Date.now(),...uForm,ativo:true}]);
+    try {
+      if(editando){
+        await editarUsuario(editando, uForm);
+      } else {
+        await criarUsuario(uForm);
+      }
+      await carregarUsuarios();
+    } catch(e) {
+      alert("Erro ao salvar usuário: " + (e.message || e));
+      return;
     }
     setModal(false);
     setUForm({nome:"",email:"",perfil:"Operador",turno:"NOITE",senha:"1234"});
     setEditando(null);
   };
-  const alternarAtivo=(id)=>{
+  const alternarAtivo=async(id)=>{
     const u=usuarios.find(x=>x.id===id);
     const novoAtivo=u?.ativo===false;
-    setUsuarios(us=>us.map(x=>x.id===id?{...x,ativo:novoAtivo}:x));
+    try {
+      await editarUsuario(id, { ativo: novoAtivo });
+      await carregarUsuarios();
+    } catch(e) {
+      alert("Erro ao atualizar usuário: " + (e.message || e));
+      return;
+    }
     if(setAuditoria) registrarAuditoria(
       setAuditoria,
       novoAtivo?"USUARIO_REATIVADO":"USUARIO_DESATIVADO",
@@ -4447,7 +4532,7 @@ function TelaCadastros({ user, metas=METAS_DEFAULT, setMetas, auditoria, setAudi
                 </button>
               </div>
             )}
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:20}}>
+            <div className="grid-2" style={{display:"grid",gap:14,marginBottom:20}}>
               {Object.entries(metas).map(([k,m])=>{
                 const def=METAS_DEFAULT[k];
                 const foiAlt=m.min!==def.min||m.max!==def.max;
@@ -4483,7 +4568,7 @@ function TelaCadastros({ user, metas=METAS_DEFAULT, setMetas, auditoria, setAudi
                       </div>
                     </div>
                     <div style={{padding:12}}>
-                      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:8}}>
+                      <div className="grid-2" style={{display:"grid",gap:10,marginBottom:8}}>
                         {[["Mínimo","min","#16a34a"],["Máximo","max","#dc2626"]].map(([lbl,campo,cor])=>(
                           <div key={campo}>
                             <label style={{display:"block",fontSize:9,fontWeight:700,color:cor,
@@ -5081,7 +5166,7 @@ function TelaAcoesKpi({ registros, user }) {
       <div style={{padding:22}}>
 
         {/* Cards de resumo */}
-        <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12,marginBottom:18}}>
+        <div className="grid-4" style={{display:"grid",gap:12,marginBottom:18}}>
           <SC label="Total de Ações" value={total}      icon="📌" color="#0ea5e9"/>
           <SC label="Em Aberto"      value={abertas}    icon="🔓" color="#f59e0b"/>
           <SC label="Em Andamento"   value={andamento}  icon="🔄" color="#0284c7"/>
@@ -5226,7 +5311,7 @@ function TelaAuditoria({ auditoria }) {
       <div style={{padding:22}}>
 
         {/* Cards resumo */}
-        <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12,marginBottom:18}}>
+        <div className="grid-4" style={{display:"grid",gap:12,marginBottom:18}}>
           {[
             ["Total Eventos",    auditoria.length,                                             "📋","#0ea5e9"],
             ["Metas Alteradas",  auditoria.filter(a=>a.tipo==="META_ALTERADA").length,         "🎯","#f59e0b"],
@@ -5351,11 +5436,1191 @@ function TelaAuditoria({ auditoria }) {
 }
 
 // ══════════════════════════════════════════════════════════════════
+// OCORRÊNCIAS DO TURNO — diário de bordo do Líder
+// ══════════════════════════════════════════════════════════════════
+const CATEGORIAS_OCORRENCIA = [
+  { id:"GERAL",         label:"Geral",         icon:"📋", cor:"#64748b" },
+  { id:"EQUIPAMENTO",   label:"Equipamento",   icon:"⚙",  cor:"#dc2626" },
+  { id:"SEGURANCA",     label:"Segurança",     icon:"🦺", cor:"#f59e0b" },
+  { id:"QUALIDADE",     label:"Qualidade",     icon:"🧪", cor:"#8b5cf6" },
+  { id:"ABASTECIMENTO", label:"Abastecimento", icon:"🚚", cor:"#0ea5e9" },
+  { id:"PESSOAL",       label:"Pessoal",       icon:"👤", cor:"#10b981" },
+];
+
+const GRAVIDADE_COR = {
+  BAIXA: { cor:"#16a34a", bg:"#f0fdf4", label:"Baixa"  },
+  MEDIA: { cor:"#d97706", bg:"#fffbeb", label:"Média"  },
+  ALTA:  { cor:"#dc2626", bg:"#fff1f2", label:"Alta"   },
+};
+
+function OcorrenciaItem({ o, podeGerenciar, onResolver, onExcluir }) {
+  const cat = CATEGORIAS_OCORRENCIA.find(c=>c.id===o.categoria) || CATEGORIAS_OCORRENCIA[0];
+  const grav = GRAVIDADE_COR[o.gravidade] || GRAVIDADE_COR.BAIXA;
+  const tc = TURNOS_CONFIG.find(t=>t.id===o.turno);
+
+  return (
+    <div style={{background:"#fff",borderRadius:10,border:"1px solid #e2e8f0",
+      borderLeft:`4px solid ${o.resolvida?"#86efac":grav.cor}`,
+      padding:14,marginBottom:10,opacity:o.resolvida?0.7:1,
+      boxShadow:"0 1px 3px rgba(0,0,0,.04)"}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:10}}>
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:6,flexWrap:"wrap"}}>
+            <span style={{fontSize:9,background:cat.cor+"15",color:cat.cor,border:`1px solid ${cat.cor}30`,
+              padding:"2px 8px",borderRadius:4,fontFamily:"monospace",fontWeight:700}}>
+              {cat.icon} {cat.label}
+            </span>
+            <span style={{fontSize:9,background:grav.bg,color:grav.cor,
+              padding:"2px 8px",borderRadius:4,fontFamily:"monospace",fontWeight:700}}>
+              {grav.label}
+            </span>
+            {tc&&<span style={{fontSize:9,background:tc.bg,color:tc.cor,
+              padding:"2px 7px",borderRadius:4,fontFamily:"monospace",fontWeight:700}}>
+              {o.turno}
+            </span>}
+            {o.resolvida&&<span style={{fontSize:9,background:"#dcfce7",color:"#16a34a",
+              padding:"2px 8px",borderRadius:4,fontFamily:"monospace",fontWeight:700}}>
+              ✓ Resolvida
+            </span>}
+          </div>
+          <div style={{fontSize:13,fontWeight:700,color:"#0f172a",marginBottom:4,
+            textDecoration:o.resolvida?"line-through":"none"}}>
+            {o.titulo}
+          </div>
+          {o.descricao&&(
+            <div style={{fontSize:12,color:"#475569",lineHeight:1.5,marginBottom:6}}>
+              {o.descricao}
+            </div>
+          )}
+          <div style={{fontSize:10,color:"#94a3b8",fontFamily:"monospace"}}>
+            {o.autor} · {new Date(o.timestamp).toLocaleString("pt-BR",
+              {day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"})}
+          </div>
+        </div>
+        {podeGerenciar&&(
+          <div style={{display:"flex",flexDirection:"column",gap:5,flexShrink:0}}>
+            {!o.resolvida&&(
+              <button onClick={()=>onResolver(o.id)}
+                style={{padding:"5px 10px",background:"#dcfce7",border:"1px solid #86efac",
+                  borderRadius:6,color:"#16a34a",fontWeight:700,fontSize:11,cursor:"pointer",
+                  whiteSpace:"nowrap"}}>
+                ✓ Resolver
+              </button>
+            )}
+            <button onClick={()=>onExcluir(o.id)}
+              style={{padding:"5px 10px",background:"#fee2e2",border:"1px solid #fca5a5",
+                borderRadius:6,color:"#dc2626",fontWeight:700,fontSize:11,cursor:"pointer",
+                whiteSpace:"nowrap"}}>
+              🗑 Excluir
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function TelaOcorrencias({ user, ocorrencias, setOcorrencias }) {
+  const podeGerenciar = user.perfil==="Lider" || user.perfil==="Supervisor";
+  const [modal, setModal] = useState(false);
+  const [filtroTurno, setFiltroTurno] = useState("Todos");
+  const [filtroCat, setFiltroCat] = useState("Todos");
+  const [filtroStatus, setFiltroStatus] = useState("Abertas");
+  const [salvando, setSalvando] = useState(false);
+  const [erro, setErro] = useState("");
+
+  const turnoAtual = detectarTurno();
+  const hoje = new Date().toISOString().split("T")[0];
+
+  const [form, setForm] = useState({
+    data: hoje,
+    turno: turnoAtual,
+    categoria: "GERAL",
+    titulo: "",
+    descricao: "",
+    gravidade: "BAIXA",
+  });
+
+  const abrirNovo = () => {
+    setForm({ data: hoje, turno: turnoAtual, categoria: "GERAL", titulo: "", descricao: "", gravidade: "BAIXA" });
+    setErro("");
+    setModal(true);
+  };
+
+  const salvar = async () => {
+    if (!form.titulo.trim()) { setErro("Descreva o ocorrido em poucas palavras no título."); return; }
+    setSalvando(true);
+    setErro("");
+    try {
+      const nova = await criarOcorrencia({ ...form, autor: user.nome, perfil: user.perfil });
+      setOcorrencias(prev => [nova, ...prev]);
+      setModal(false);
+    } catch (e) {
+      setErro("Erro ao salvar: " + (e.message || e));
+    } finally {
+      setSalvando(false);
+    }
+  };
+
+  const resolver = async (id) => {
+    try {
+      await atualizarOcorrencia(id, { resolvida: true });
+      setOcorrencias(prev => prev.map(o => o.id===id ? { ...o, resolvida: true } : o));
+    } catch (e) { alert("Erro ao atualizar: " + (e.message || e)); }
+  };
+
+  const excluir = async (id) => {
+    if (!confirm("Excluir esta ocorrência? Essa ação não pode ser desfeita.")) return;
+    try {
+      await excluirOcorrencia(id);
+      setOcorrencias(prev => prev.filter(o => o.id !== id));
+    } catch (e) { alert("Erro ao excluir: " + (e.message || e)); }
+  };
+
+  const filtradas = ocorrencias.filter(o => {
+    if (filtroTurno !== "Todos" && o.turno !== filtroTurno) return false;
+    if (filtroCat !== "Todos" && o.categoria !== filtroCat) return false;
+    if (filtroStatus === "Abertas" && o.resolvida) return false;
+    if (filtroStatus === "Resolvidas" && !o.resolvida) return false;
+    return true;
+  });
+
+  const abertas = ocorrencias.filter(o => !o.resolvida).length;
+  const altas = ocorrencias.filter(o => !o.resolvida && o.gravidade==="ALTA").length;
+  const hojeCount = ocorrencias.filter(o => o.data===hoje).length;
+
+  return (
+    <div>
+      <PH title="📝 Ocorrências do Turno" subtitle="Diário de bordo — paradas, intercorrências e eventos do turno"
+        action={
+          podeGerenciar && (
+            <button onClick={abrirNovo}
+              style={{padding:"9px 16px",background:"linear-gradient(135deg,#0ea5e9,#0284c7)",
+                color:"#fff",border:"none",borderRadius:7,fontSize:13,fontWeight:700,cursor:"pointer",
+                boxShadow:"0 4px 12px rgba(14,165,233,.25)",whiteSpace:"nowrap"}}>
+              + Nova Ocorrência
+            </button>
+          )
+        }/>
+
+      <div style={{padding:22}}>
+        {!podeGerenciar && (
+          <div style={{background:"#f0f9ff",border:"1px solid #bae6fd",borderRadius:8,
+            padding:"10px 14px",marginBottom:16,fontSize:12,color:"#0284c7"}}>
+            ℹ️ Apenas Líderes e Supervisores podem registrar ocorrências. Você pode consultar o histórico abaixo.
+          </div>
+        )}
+
+        <div className="grid-3" style={{display:"grid",gap:12,marginBottom:18}}>
+          <SC label="Abertas hoje"   value={hojeCount} icon="📅" color="#0ea5e9"/>
+          <SC label="Em aberto"      value={abertas}   icon="⏳" color="#d97706"/>
+          <SC label="Gravidade alta" value={altas}      icon="🔥" color="#dc2626"/>
+        </div>
+
+        {/* Filtros */}
+        <div style={{background:"#fff",borderRadius:9,padding:"12px 16px",marginBottom:16,
+          border:"1px solid #e2e8f0",display:"flex",gap:16,flexWrap:"wrap",alignItems:"flex-start"}}>
+          <div>
+            <div style={{fontSize:9,fontWeight:700,color:"#64748b",textTransform:"uppercase",
+              letterSpacing:.5,fontFamily:"monospace",marginBottom:6}}>Status</div>
+            <div style={{display:"flex",gap:4}}>
+              {["Abertas","Resolvidas","Todos"].map(s=>(
+                <button key={s} onClick={()=>setFiltroStatus(s)}
+                  style={{padding:"4px 10px",borderRadius:12,border:"1.5px solid",
+                    borderColor:filtroStatus===s?"#0ea5e9":"#e2e8f0",
+                    background:filtroStatus===s?"#e0f2fe":"#fff",
+                    color:filtroStatus===s?"#0284c7":"#64748b",
+                    fontSize:11,fontWeight:600,cursor:"pointer"}}>
+                  {s}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <div style={{fontSize:9,fontWeight:700,color:"#64748b",textTransform:"uppercase",
+              letterSpacing:.5,fontFamily:"monospace",marginBottom:6}}>Turno</div>
+            <div style={{display:"flex",gap:4}}>
+              {["Todos","NOITE","MANHÃ","TARDE"].map(t=>{
+                const tc=TURNOS_CONFIG.find(x=>x.id===t);
+                return (
+                  <button key={t} onClick={()=>setFiltroTurno(t)}
+                    style={{padding:"4px 10px",borderRadius:12,border:"1.5px solid",
+                      borderColor:filtroTurno===t?(tc?.cor||"#0ea5e9"):"#e2e8f0",
+                      background:filtroTurno===t?(tc?.bg||"#e0f2fe"):"#fff",
+                      color:filtroTurno===t?(tc?.cor||"#0284c7"):"#64748b",
+                      fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"monospace"}}>
+                    {t}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          <div>
+            <div style={{fontSize:9,fontWeight:700,color:"#64748b",textTransform:"uppercase",
+              letterSpacing:.5,fontFamily:"monospace",marginBottom:6}}>Categoria</div>
+            <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
+              <button onClick={()=>setFiltroCat("Todos")}
+                style={{padding:"4px 10px",borderRadius:12,border:"1.5px solid",
+                  borderColor:filtroCat==="Todos"?"#8b5cf6":"#e2e8f0",
+                  background:filtroCat==="Todos"?"#f5f3ff":"#fff",
+                  color:filtroCat==="Todos"?"#7c3aed":"#64748b",
+                  fontSize:11,fontWeight:600,cursor:"pointer"}}>
+                Todas
+              </button>
+              {CATEGORIAS_OCORRENCIA.map(c=>(
+                <button key={c.id} onClick={()=>setFiltroCat(c.id)}
+                  style={{padding:"4px 10px",borderRadius:12,border:"1.5px solid",
+                    borderColor:filtroCat===c.id?c.cor:"#e2e8f0",
+                    background:filtroCat===c.id?c.cor+"15":"#fff",
+                    color:filtroCat===c.id?c.cor:"#64748b",
+                    fontSize:11,fontWeight:600,cursor:"pointer"}}>
+                  {c.icon} {c.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Lista */}
+        {filtradas.length===0 ? (
+          <div style={{background:"#fff",borderRadius:11,padding:40,textAlign:"center",
+            border:"1px solid #e2e8f0",color:"#94a3b8"}}>
+            <div style={{fontSize:32,marginBottom:10}}>📝</div>
+            <div style={{fontSize:13,fontWeight:600,color:"#64748b",marginBottom:4}}>
+              Nenhuma ocorrência para o filtro selecionado
+            </div>
+            <div style={{fontSize:11}}>
+              {podeGerenciar ? "Clique em \"+ Nova Ocorrência\" para registrar um evento do turno" : "Tente ajustar os filtros"}
+            </div>
+          </div>
+        ) : (
+          filtradas.map(o => (
+            <OcorrenciaItem key={o.id} o={o} podeGerenciar={podeGerenciar}
+              onResolver={resolver} onExcluir={excluir}/>
+          ))
+        )}
+      </div>
+
+      {/* Modal nova ocorrência */}
+      {modal && (
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.5)",display:"flex",
+          alignItems:"center",justifyContent:"center",zIndex:200,padding:20}}>
+          <div style={{background:"#fff",borderRadius:13,padding:24,width:"100%",maxWidth:460,
+            maxHeight:"90vh",overflowY:"auto",boxShadow:"0 24px 64px rgba(0,0,0,.3)"}}>
+            <h3 style={{fontSize:15,fontWeight:800,margin:"0 0 16px",color:"#0f172a"}}>
+              📝 Nova Ocorrência do Turno
+            </h3>
+
+            <div className="grid-2" style={{display:"grid",gap:10,marginBottom:12}}>
+              <div>
+                <label style={{display:"block",fontSize:9,fontWeight:700,color:"#64748b",
+                  textTransform:"uppercase",letterSpacing:.5,fontFamily:"monospace",marginBottom:4}}>
+                  Data
+                </label>
+                <input type="date" value={form.data} onChange={e=>setForm(f=>({...f,data:e.target.value}))}
+                  style={{width:"100%",padding:"8px 10px",borderRadius:6,border:"1.5px solid #e2e8f0",
+                    fontSize:12,fontFamily:"monospace",boxSizing:"border-box"}}/>
+              </div>
+              <div>
+                <label style={{display:"block",fontSize:9,fontWeight:700,color:"#64748b",
+                  textTransform:"uppercase",letterSpacing:.5,fontFamily:"monospace",marginBottom:4}}>
+                  Turno
+                </label>
+                <select value={form.turno} onChange={e=>setForm(f=>({...f,turno:e.target.value}))}
+                  style={{width:"100%",padding:"8px 10px",borderRadius:6,border:"1.5px solid #e2e8f0",
+                    fontSize:12,background:"#fff",boxSizing:"border-box"}}>
+                  {TURNOS_CONFIG.map(t=><option key={t.id} value={t.id}>{t.label}</option>)}
+                </select>
+              </div>
+            </div>
+
+            <div style={{marginBottom:12}}>
+              <label style={{display:"block",fontSize:9,fontWeight:700,color:"#64748b",
+                textTransform:"uppercase",letterSpacing:.5,fontFamily:"monospace",marginBottom:4}}>
+                Categoria
+              </label>
+              <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
+                {CATEGORIAS_OCORRENCIA.map(c=>(
+                  <button key={c.id} onClick={()=>setForm(f=>({...f,categoria:c.id}))}
+                    style={{padding:"6px 11px",borderRadius:7,border:"1.5px solid",
+                      borderColor:form.categoria===c.id?c.cor:"#e2e8f0",
+                      background:form.categoria===c.id?c.cor+"15":"#fff",
+                      color:form.categoria===c.id?c.cor:"#64748b",
+                      fontSize:11,fontWeight:600,cursor:"pointer"}}>
+                    {c.icon} {c.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div style={{marginBottom:12}}>
+              <label style={{display:"block",fontSize:9,fontWeight:700,color:"#64748b",
+                textTransform:"uppercase",letterSpacing:.5,fontFamily:"monospace",marginBottom:4}}>
+                Gravidade
+              </label>
+              <div style={{display:"flex",gap:5}}>
+                {Object.entries(GRAVIDADE_COR).map(([g,cfg])=>(
+                  <button key={g} onClick={()=>setForm(f=>({...f,gravidade:g}))}
+                    style={{flex:1,padding:"7px 0",borderRadius:7,border:"1.5px solid",
+                      borderColor:form.gravidade===g?cfg.cor:"#e2e8f0",
+                      background:form.gravidade===g?cfg.bg:"#fff",
+                      color:form.gravidade===g?cfg.cor:"#64748b",
+                      fontSize:12,fontWeight:700,cursor:"pointer"}}>
+                    {cfg.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div style={{marginBottom:12}}>
+              <label style={{display:"block",fontSize:9,fontWeight:700,color:"#64748b",
+                textTransform:"uppercase",letterSpacing:.5,fontFamily:"monospace",marginBottom:4}}>
+                Título *
+              </label>
+              <input type="text" value={form.titulo}
+                onChange={e=>setForm(f=>({...f,titulo:e.target.value}))}
+                placeholder="Ex: Parada do Laminador B por 20 minutos"
+                style={{width:"100%",padding:"9px 11px",borderRadius:7,border:"1.5px solid #e2e8f0",
+                  fontSize:13,boxSizing:"border-box"}}/>
+            </div>
+
+            <div style={{marginBottom:16}}>
+              <label style={{display:"block",fontSize:9,fontWeight:700,color:"#64748b",
+                textTransform:"uppercase",letterSpacing:.5,fontFamily:"monospace",marginBottom:4}}>
+                Descrição detalhada (opcional)
+              </label>
+              <textarea rows={3} value={form.descricao}
+                onChange={e=>setForm(f=>({...f,descricao:e.target.value}))}
+                placeholder="Detalhe o que aconteceu, causa provável, ações já tomadas..."
+                style={{width:"100%",padding:"9px 11px",borderRadius:7,border:"1.5px solid #e2e8f0",
+                  fontSize:12,resize:"vertical",boxSizing:"border-box",fontFamily:"inherit"}}/>
+            </div>
+
+            {erro && (
+              <div style={{background:"#fff1f2",border:"1px solid #fca5a5",borderRadius:6,
+                padding:"8px 12px",color:"#dc2626",fontSize:12,marginBottom:12}}>
+                {erro}
+              </div>
+            )}
+
+            <div style={{display:"flex",gap:8}}>
+              <button onClick={salvar} disabled={salvando}
+                style={{flex:1,padding:11,background:salvando?"#94a3b8":"linear-gradient(135deg,#0ea5e9,#0284c7)",
+                  color:"#fff",border:"none",borderRadius:8,fontSize:13,fontWeight:700,
+                  cursor:salvando?"wait":"pointer"}}>
+                {salvando?"Salvando...":"💾 Registrar Ocorrência"}
+              </button>
+              <button onClick={()=>setModal(false)}
+                style={{padding:"11px 16px",background:"#f1f5f9",color:"#64748b",
+                  border:"none",borderRadius:8,cursor:"pointer",fontSize:12}}>
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════
+// PARADAS DE FÁBRICA — registro de tempo parado por turno
+// ══════════════════════════════════════════════════════════════════
+const MOTIVOS_PARADA = [
+  { id:"MANUTENCAO",     label:"Manutenção",         icon:"🔧", cor:"#dc2626" },
+  { id:"FALTA_MATERIA",  label:"Falta de Matéria-Prima", icon:"📦", cor:"#f59e0b" },
+  { id:"ELETRICA",       label:"Falha Elétrica",     icon:"⚡", cor:"#eab308" },
+  { id:"MECANICA",       label:"Falha Mecânica",     icon:"⚙",  cor:"#dc2626" },
+  { id:"LIMPEZA",        label:"Limpeza / Higienização", icon:"🧹", cor:"#0ea5e9" },
+  { id:"TROCA_TURNO",    label:"Troca de Turno",     icon:"🔄", cor:"#8b5cf6" },
+  { id:"SEGURANCA",      label:"Parada de Segurança", icon:"🦺", cor:"#f97316" },
+  { id:"OUTRO",          label:"Outro",              icon:"📋", cor:"#64748b" },
+];
+
+function ParadaItem({ p, podeValidar, onValidar, onRejeitar }) {
+  const motivo = MOTIVOS_PARADA.find(m=>m.id===p.motivo) || MOTIVOS_PARADA[MOTIVOS_PARADA.length-1];
+  const tc = TURNOS_CONFIG.find(t=>t.id===p.turno);
+
+  return (
+    <div style={{background:"#fff",borderRadius:10,border:"1px solid #e2e8f0",
+      borderLeft:`4px solid ${p.status==="VALIDADO"?"#16a34a":p.status==="REJEITADO"?"#dc2626":motivo.cor}`,
+      padding:14,marginBottom:10,boxShadow:"0 1px 3px rgba(0,0,0,.04)"}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:12}}>
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:7,flexWrap:"wrap"}}>
+            <span style={{fontSize:20,fontWeight:800,fontFamily:"monospace",color:"#0f172a"}}>
+              {p.minutos}<span style={{fontSize:11,color:"#94a3b8"}}> min</span>
+            </span>
+            <span style={{fontSize:9,background:motivo.cor+"15",color:motivo.cor,
+              border:`1px solid ${motivo.cor}30`,padding:"2px 8px",borderRadius:4,
+              fontFamily:"monospace",fontWeight:700}}>
+              {motivo.icon} {motivo.label}
+            </span>
+            {tc && (
+              <span style={{fontSize:9,background:tc.bg,color:tc.cor,
+                padding:"2px 7px",borderRadius:4,fontFamily:"monospace",fontWeight:700}}>
+                {p.turno}
+              </span>
+            )}
+            <Badge s={p.status}/>
+          </div>
+          {p.observacao && (
+            <div style={{fontSize:12,color:"#475569",lineHeight:1.5,marginBottom:6}}>
+              {p.observacao}
+            </div>
+          )}
+          <div style={{fontSize:10,color:"#94a3b8",fontFamily:"monospace"}}>
+            {new Date(p.data+"T12:00:00").toLocaleDateString("pt-BR")} ·  {p.operador}
+            {p.status!=="PENDENTE" && p.validadoPor && (
+              <span> · {p.status==="VALIDADO"?"validado":"rejeitado"} por {p.validadoPor.split(" ")[0]}</span>
+            )}
+          </div>
+        </div>
+        {podeValidar && p.status==="PENDENTE" && (
+          <div style={{display:"flex",flexDirection:"column",gap:5,flexShrink:0}}>
+            <button onClick={()=>onValidar(p.id)}
+              style={{padding:"6px 12px",background:"#dcfce7",border:"1px solid #86efac",
+                borderRadius:6,color:"#16a34a",fontWeight:700,fontSize:11,cursor:"pointer",
+                whiteSpace:"nowrap"}}>
+              ✓ Validar
+            </button>
+            <button onClick={()=>onRejeitar(p.id)}
+              style={{padding:"6px 12px",background:"#fee2e2",border:"1px solid #fca5a5",
+                borderRadius:6,color:"#dc2626",fontWeight:700,fontSize:11,cursor:"pointer",
+                whiteSpace:"nowrap"}}>
+              ✕ Rejeitar
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function TelaParadas({ user, paradas, setParadas, auditoria, setAuditoria }) {
+  const podeValidar = user.perfil==="Lider" || user.perfil==="Supervisor";
+  const hoje = new Date();
+  const turnoAtual = detectarTurno();
+
+  const [modal,        setModal]        = useState(false);
+  const [salvando,     setSalvando]     = useState(false);
+  const [erro,         setErro]         = useState("");
+  const [filtroTurno,  setFiltroTurno]  = useState("Todos");
+  const [filtroStatus, setFiltroStatus] = useState("Todos");
+  const [filtroMotivo, setFiltroMotivo] = useState("Todos");
+
+  // Período exibido na somatória — por padrão, hoje
+  const [modoPeriodo, setModoPeriodo] = useState("hoje"); // "hoje" | "mes"
+  const [mesSel, setMesSel] = useState(String(hoje.getMonth()+1).padStart(2,"0"));
+  const [anoSel, setAnoSel] = useState(String(hoje.getFullYear()));
+  const MESES = ["Janeiro","Fevereiro","Março","Abril","Maio","Junho",
+                 "Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"];
+
+  const [form, setForm] = useState({
+    data: hoje.toISOString().split("T")[0],
+    turno: turnoAtual,
+    minutos: "",
+    motivo: "MANUTENCAO",
+    observacao: "",
+  });
+
+  const abrirNovo = () => {
+    setForm({
+      data: new Date().toISOString().split("T")[0],
+      turno: detectarTurno(),
+      minutos: "",
+      motivo: "MANUTENCAO",
+      observacao: "",
+    });
+    setErro("");
+    setModal(true);
+  };
+
+  const salvar = async () => {
+    const min = parseFloat(form.minutos);
+    if (!min || min <= 0) { setErro("Informe os minutos parados (maior que zero)."); return; }
+    setSalvando(true);
+    setErro("");
+    try {
+      const nova = await criarParada({ ...form, minutos: min, operador: user.nome });
+      setParadas(prev => [nova, ...prev]);
+      setModal(false);
+    } catch (e) {
+      setErro("Erro ao salvar: " + (e.message || e));
+    } finally {
+      setSalvando(false);
+    }
+  };
+
+  const validar = async (id) => {
+    try {
+      await atualizarParada(id, { status:"VALIDADO", validadoPor:user.nome, dataValidacao:new Date().toISOString() });
+      setParadas(prev => prev.map(p => p.id===id ? {...p, status:"VALIDADO", validadoPor:user.nome, dataValidacao:new Date().toISOString()} : p));
+      if (setAuditoria) registrarAuditoria(setAuditoria, "PARADA_VALIDADA", user, { paradaId: id });
+    } catch (e) { alert("Erro ao validar: " + (e.message || e)); }
+  };
+
+  const rejeitar = async (id) => {
+    try {
+      await atualizarParada(id, { status:"REJEITADO", validadoPor:user.nome, dataValidacao:new Date().toISOString() });
+      setParadas(prev => prev.map(p => p.id===id ? {...p, status:"REJEITADO", validadoPor:user.nome, dataValidacao:new Date().toISOString()} : p));
+      if (setAuditoria) registrarAuditoria(setAuditoria, "PARADA_REJEITADA", user, { paradaId: id });
+    } catch (e) { alert("Erro ao rejeitar: " + (e.message || e)); }
+  };
+
+  // Paradas do período selecionado para a somatória (sempre só as VALIDADAS contam no total oficial)
+  const paradasPeriodo = useMemo(()=>{
+    return paradas.filter(p=>{
+      if (modoPeriodo === "hoje") {
+        return p.data === hoje.toISOString().split("T")[0];
+      }
+      const [pAno, pMes] = p.data.split("-");
+      return pAno===anoSel && pMes===mesSel;
+    });
+  },[paradas, modoPeriodo, anoSel, mesSel]);
+
+  // Somatória de minutos VALIDADOS por turno
+  const somatorioPorTurno = useMemo(()=>{
+    return TURNOS_CONFIG.map(tc=>{
+      const doTurno = paradasPeriodo.filter(p=>p.turno===tc.id);
+      const validadas = doTurno.filter(p=>p.status==="VALIDADO");
+      const pendentes = doTurno.filter(p=>p.status==="PENDENTE");
+      return {
+        ...tc,
+        totalValidado: validadas.reduce((a,p)=>a+p.minutos,0),
+        totalPendente: pendentes.reduce((a,p)=>a+p.minutos,0),
+        qtdValidadas: validadas.length,
+        qtdPendentes: pendentes.length,
+      };
+    });
+  },[paradasPeriodo]);
+
+  const totalGeralValidado = somatorioPorTurno.reduce((a,t)=>a+t.totalValidado,0);
+  const totalGeralPendente = somatorioPorTurno.reduce((a,t)=>a+t.totalPendente,0);
+  const totalPendentesValidacao = paradas.filter(p=>p.status==="PENDENTE").length;
+
+  const formatarMinutos = (min) => {
+    const h = Math.floor(min/60);
+    const m = Math.round(min%60);
+    if (h===0) return `${m}min`;
+    return `${h}h${m>0?` ${m}min`:""}`;
+  };
+
+  // Lista filtrada para exibição (não necessariamente a do período da somatória)
+  const filtradas = paradas.filter(p=>{
+    if (filtroTurno!=="Todos" && p.turno!==filtroTurno) return false;
+    if (filtroStatus!=="Todos" && p.status!==filtroStatus) return false;
+    if (filtroMotivo!=="Todos" && p.motivo!==filtroMotivo) return false;
+    return true;
+  });
+
+  return (
+    <div>
+      <PH title="⏱ Paradas de Fábrica" subtitle="Tempo de parada por turno — registrado pelo operador, validado pelo líder"
+        action={
+          <button onClick={abrirNovo}
+            style={{padding:"9px 16px",background:"linear-gradient(135deg,#dc2626,#b91c1c)",
+              color:"#fff",border:"none",borderRadius:7,fontSize:13,fontWeight:700,cursor:"pointer",
+              boxShadow:"0 4px 12px rgba(220,38,38,.25)",whiteSpace:"nowrap"}}>
+            + Registrar Parada
+          </button>
+        }/>
+
+      <div style={{padding:22}}>
+
+        {/* Cards de resumo geral */}
+        <div className="grid-3" style={{display:"grid",gap:12,marginBottom:18}}>
+          <SC label="Total Validado"   value={formatarMinutos(totalGeralValidado)} icon="⏱" color="#16a34a"/>
+          <SC label="Aguardando Validação" value={formatarMinutos(totalGeralPendente)} icon="⏳" color="#d97706"/>
+          <SC label="Registros Pendentes" value={totalPendentesValidacao} icon="📋" color="#dc2626"/>
+        </div>
+
+        {/* Somatória por turno */}
+        <div style={{background:"#fff",borderRadius:12,padding:18,border:"1px solid #e2e8f0",
+          boxShadow:"0 1px 4px rgba(0,0,0,.05)",marginBottom:18}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",
+            marginBottom:14,flexWrap:"wrap",gap:10}}>
+            <div style={{fontSize:13,fontWeight:800,color:"#0f172a"}}>
+              Somatória de Paradas por Turno
+            </div>
+            <div style={{display:"flex",gap:4,background:"#f1f5f9",padding:3,borderRadius:7}}>
+              {[["hoje","📅 Hoje"],["mes","📊 Mensal"]].map(([v,l])=>(
+                <button key={v} onClick={()=>setModoPeriodo(v)}
+                  style={{padding:"5px 12px",borderRadius:5,border:"none",fontSize:11,fontWeight:600,
+                    cursor:"pointer",background:modoPeriodo===v?"#fff":"transparent",
+                    color:modoPeriodo===v?"#0f172a":"#64748b",
+                    boxShadow:modoPeriodo===v?"0 1px 3px rgba(0,0,0,.08)":"none"}}>
+                  {l}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {modoPeriodo==="mes" && (
+            <div style={{display:"flex",gap:10,marginBottom:14}}>
+              <select value={mesSel} onChange={e=>setMesSel(e.target.value)}
+                style={{padding:"7px 12px",borderRadius:7,border:"1.5px solid #e2e8f0",
+                  fontSize:12,fontWeight:600,background:"#fff",cursor:"pointer"}}>
+                {MESES.map((m,i)=><option key={i} value={String(i+1).padStart(2,"0")}>{m}</option>)}
+              </select>
+              <select value={anoSel} onChange={e=>setAnoSel(e.target.value)}
+                style={{padding:"7px 12px",borderRadius:7,border:"1.5px solid #e2e8f0",
+                  fontSize:12,fontWeight:600,background:"#fff",cursor:"pointer"}}>
+                {[...new Set(paradas.map(p=>p.data?.slice(0,4)))].filter(Boolean).sort().reverse()
+                  .concat(String(hoje.getFullYear())).filter((v,i,a)=>a.indexOf(v)===i)
+                  .map(a=><option key={a} value={a}>{a}</option>)}
+              </select>
+            </div>
+          )}
+
+          <div className="grid-3" style={{display:"grid",gap:12}}>
+            {somatorioPorTurno.map(t=>(
+              <div key={t.id} style={{border:`2px solid ${t.cor}30`,borderRadius:10,
+                overflow:"hidden"}}>
+                <div style={{background:`linear-gradient(135deg,${t.cor},${t.cor}cc)`,
+                  padding:"9px 13px"}}>
+                  <div style={{fontSize:11,fontWeight:800,color:"#fff"}}>{t.label}</div>
+                  <div style={{fontSize:9,color:"rgba(255,255,255,.7)",fontFamily:"monospace"}}>
+                    {t.horario}
+                  </div>
+                </div>
+                <div style={{padding:14}}>
+                  <div style={{fontSize:24,fontWeight:800,fontFamily:"monospace",color:"#0f172a",
+                    marginBottom:2}}>
+                    {formatarMinutos(t.totalValidado)}
+                  </div>
+                  <div style={{fontSize:9,color:"#94a3b8",fontFamily:"monospace",marginBottom:8}}>
+                    validado · {t.qtdValidadas} registro{t.qtdValidadas!==1?"s":""}
+                  </div>
+                  {t.totalPendente>0 && (
+                    <div style={{background:"#fffbeb",border:"1px solid #fde68a",borderRadius:6,
+                      padding:"5px 9px",fontSize:10,color:"#92400e",fontFamily:"monospace"}}>
+                      +{formatarMinutos(t.totalPendente)} pendente ({t.qtdPendentes})
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Filtros */}
+        <div style={{background:"#fff",borderRadius:9,padding:"12px 16px",marginBottom:16,
+          border:"1px solid #e2e8f0",display:"flex",gap:16,flexWrap:"wrap",alignItems:"flex-start"}}>
+          <div>
+            <div style={{fontSize:9,fontWeight:700,color:"#64748b",textTransform:"uppercase",
+              letterSpacing:.5,fontFamily:"monospace",marginBottom:6}}>Status</div>
+            <div style={{display:"flex",gap:4}}>
+              {["Todos","PENDENTE","VALIDADO","REJEITADO"].map(s=>(
+                <button key={s} onClick={()=>setFiltroStatus(s)}
+                  style={{padding:"4px 10px",borderRadius:12,border:"1.5px solid",
+                    borderColor:filtroStatus===s?"#0ea5e9":"#e2e8f0",
+                    background:filtroStatus===s?"#e0f2fe":"#fff",
+                    color:filtroStatus===s?"#0284c7":"#64748b",
+                    fontSize:10,fontWeight:600,cursor:"pointer",fontFamily:"monospace"}}>
+                  {s==="Todos"?"Todos":s.charAt(0)+s.slice(1).toLowerCase()}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <div style={{fontSize:9,fontWeight:700,color:"#64748b",textTransform:"uppercase",
+              letterSpacing:.5,fontFamily:"monospace",marginBottom:6}}>Turno</div>
+            <div style={{display:"flex",gap:4}}>
+              {["Todos","NOITE","MANHÃ","TARDE"].map(t=>{
+                const tc=TURNOS_CONFIG.find(x=>x.id===t);
+                return (
+                  <button key={t} onClick={()=>setFiltroTurno(t)}
+                    style={{padding:"4px 10px",borderRadius:12,border:"1.5px solid",
+                      borderColor:filtroTurno===t?(tc?.cor||"#0ea5e9"):"#e2e8f0",
+                      background:filtroTurno===t?(tc?.bg||"#e0f2fe"):"#fff",
+                      color:filtroTurno===t?(tc?.cor||"#0284c7"):"#64748b",
+                      fontSize:10,fontWeight:600,cursor:"pointer",fontFamily:"monospace"}}>
+                    {t}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          <div>
+            <div style={{fontSize:9,fontWeight:700,color:"#64748b",textTransform:"uppercase",
+              letterSpacing:.5,fontFamily:"monospace",marginBottom:6}}>Motivo</div>
+            <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
+              <button onClick={()=>setFiltroMotivo("Todos")}
+                style={{padding:"4px 10px",borderRadius:12,border:"1.5px solid",
+                  borderColor:filtroMotivo==="Todos"?"#8b5cf6":"#e2e8f0",
+                  background:filtroMotivo==="Todos"?"#f5f3ff":"#fff",
+                  color:filtroMotivo==="Todos"?"#7c3aed":"#64748b",
+                  fontSize:10,fontWeight:600,cursor:"pointer"}}>
+                Todos
+              </button>
+              {MOTIVOS_PARADA.map(m=>(
+                <button key={m.id} onClick={()=>setFiltroMotivo(m.id)}
+                  style={{padding:"4px 10px",borderRadius:12,border:"1.5px solid",
+                    borderColor:filtroMotivo===m.id?m.cor:"#e2e8f0",
+                    background:filtroMotivo===m.id?m.cor+"15":"#fff",
+                    color:filtroMotivo===m.id?m.cor:"#64748b",
+                    fontSize:10,fontWeight:600,cursor:"pointer"}}>
+                  {m.icon} {m.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Lista */}
+        {filtradas.length===0 ? (
+          <div style={{background:"#fff",borderRadius:11,padding:40,textAlign:"center",
+            border:"1px solid #e2e8f0",color:"#94a3b8"}}>
+            <div style={{fontSize:32,marginBottom:10}}>⏱</div>
+            <div style={{fontSize:13,fontWeight:600,color:"#64748b",marginBottom:4}}>
+              {paradas.length===0
+                ? "Nenhuma parada registrada ainda"
+                : "Nenhuma parada para o filtro selecionado"}
+            </div>
+            <div style={{fontSize:11}}>
+              Clique em "+ Registrar Parada" para informar o tempo parado do turno
+            </div>
+          </div>
+        ) : (
+          filtradas.map(p => (
+            <ParadaItem key={p.id} p={p} podeValidar={podeValidar}
+              onValidar={validar} onRejeitar={rejeitar}/>
+          ))
+        )}
+      </div>
+
+      {/* Modal nova parada */}
+      {modal && (
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.5)",display:"flex",
+          alignItems:"center",justifyContent:"center",zIndex:200,padding:20}}>
+          <div style={{background:"#fff",borderRadius:13,padding:24,width:"100%",maxWidth:460,
+            maxHeight:"90vh",overflowY:"auto",boxShadow:"0 24px 64px rgba(0,0,0,.3)"}}>
+            <h3 style={{fontSize:15,fontWeight:800,margin:"0 0 16px",color:"#0f172a"}}>
+              ⏱ Registrar Parada de Fábrica
+            </h3>
+
+            <div className="grid-2" style={{display:"grid",gap:10,marginBottom:12}}>
+              <div>
+                <label style={{display:"block",fontSize:9,fontWeight:700,color:"#64748b",
+                  textTransform:"uppercase",letterSpacing:.5,fontFamily:"monospace",marginBottom:4}}>
+                  Data
+                </label>
+                <input type="date" value={form.data} onChange={e=>setForm(f=>({...f,data:e.target.value}))}
+                  style={{width:"100%",padding:"8px 10px",borderRadius:6,border:"1.5px solid #e2e8f0",
+                    fontSize:12,fontFamily:"monospace",boxSizing:"border-box"}}/>
+              </div>
+              <div>
+                <label style={{display:"block",fontSize:9,fontWeight:700,color:"#64748b",
+                  textTransform:"uppercase",letterSpacing:.5,fontFamily:"monospace",marginBottom:4}}>
+                  Turno
+                </label>
+                <select value={form.turno} onChange={e=>setForm(f=>({...f,turno:e.target.value}))}
+                  style={{width:"100%",padding:"8px 10px",borderRadius:6,border:"1.5px solid #e2e8f0",
+                    fontSize:12,background:"#fff",boxSizing:"border-box"}}>
+                  {TURNOS_CONFIG.map(t=><option key={t.id} value={t.id}>{t.label}</option>)}
+                </select>
+              </div>
+            </div>
+
+            <div style={{marginBottom:12}}>
+              <label style={{display:"block",fontSize:9,fontWeight:700,color:"#64748b",
+                textTransform:"uppercase",letterSpacing:.5,fontFamily:"monospace",marginBottom:4}}>
+                Minutos Parados *
+              </label>
+              <input type="number" step="1" min="1" value={form.minutos}
+                onChange={e=>setForm(f=>({...f,minutos:e.target.value}))}
+                placeholder="Ex: 25"
+                style={{width:"100%",padding:"10px 12px",borderRadius:7,border:"1.5px solid #e2e8f0",
+                  fontSize:18,fontFamily:"monospace",fontWeight:800,boxSizing:"border-box",
+                  color:"#dc2626"}}/>
+            </div>
+
+            <div style={{marginBottom:12}}>
+              <label style={{display:"block",fontSize:9,fontWeight:700,color:"#64748b",
+                textTransform:"uppercase",letterSpacing:.5,fontFamily:"monospace",marginBottom:6}}>
+                Motivo da Parada *
+              </label>
+              <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
+                {MOTIVOS_PARADA.map(m=>(
+                  <button key={m.id} onClick={()=>setForm(f=>({...f,motivo:m.id}))}
+                    style={{padding:"6px 11px",borderRadius:7,border:"1.5px solid",
+                      borderColor:form.motivo===m.id?m.cor:"#e2e8f0",
+                      background:form.motivo===m.id?m.cor+"15":"#fff",
+                      color:form.motivo===m.id?m.cor:"#64748b",
+                      fontSize:11,fontWeight:600,cursor:"pointer"}}>
+                    {m.icon} {m.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div style={{marginBottom:16}}>
+              <label style={{display:"block",fontSize:9,fontWeight:700,color:"#64748b",
+                textTransform:"uppercase",letterSpacing:.5,fontFamily:"monospace",marginBottom:4}}>
+                Observação (opcional)
+              </label>
+              <textarea rows={3} value={form.observacao}
+                onChange={e=>setForm(f=>({...f,observacao:e.target.value}))}
+                placeholder="Detalhe o que causou a parada, ações tomadas..."
+                style={{width:"100%",padding:"9px 11px",borderRadius:7,border:"1.5px solid #e2e8f0",
+                  fontSize:12,resize:"vertical",boxSizing:"border-box",fontFamily:"inherit"}}/>
+            </div>
+
+            {erro && (
+              <div style={{background:"#fff1f2",border:"1px solid #fca5a5",borderRadius:6,
+                padding:"8px 12px",color:"#dc2626",fontSize:12,marginBottom:12}}>
+                {erro}
+              </div>
+            )}
+
+            <div style={{display:"flex",gap:8}}>
+              <button onClick={salvar} disabled={salvando}
+                style={{flex:1,padding:11,background:salvando?"#94a3b8":"linear-gradient(135deg,#dc2626,#b91c1c)",
+                  color:"#fff",border:"none",borderRadius:8,fontSize:13,fontWeight:700,
+                  cursor:salvando?"wait":"pointer"}}>
+                {salvando?"Salvando...":"💾 Registrar Parada"}
+              </button>
+              <button onClick={()=>setModal(false)}
+                style={{padding:"11px 16px",background:"#f1f5f9",color:"#64748b",
+                  border:"none",borderRadius:8,cursor:"pointer",fontSize:12}}>
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════
+// ESCALA DE FUNÇÕES — calendário mensal de Farelo/Processo
+// ══════════════════════════════════════════════════════════════════
+const FUNCOES_ESCALA = {
+  FARELO:   { label:"Farelo",   icon:"🌾", cor:"#d97706", bg:"#fffbeb" },
+  PROCESSO: { label:"Processo", icon:"⚙",  cor:"#0ea5e9", bg:"#e0f2fe" },
+};
+
+function DiaEscalaModal({ dia, turnoLider, operadoresDoTurno, escalaDoMes, podeEditar, onDefinir, onFechar }) {
+  const dataStr = dia.toISOString().split("T")[0];
+  const atribuicoesDoDia = escalaDoMes.filter(e=>e.data===dataStr);
+
+  const funcaoDe = (operadorNome) => {
+    const a = atribuicoesDoDia.find(x=>x.operador===operadorNome);
+    return a?.funcao || null;
+  };
+
+  return (
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.5)",display:"flex",
+      alignItems:"center",justifyContent:"center",zIndex:200,padding:20}}>
+      <div style={{background:"#fff",borderRadius:13,padding:24,width:"100%",maxWidth:460,
+        maxHeight:"90vh",overflowY:"auto",boxShadow:"0 24px 64px rgba(0,0,0,.3)"}}>
+        <h3 style={{fontSize:15,fontWeight:800,margin:"0 0 4px",color:"#0f172a"}}>
+          📅 {dia.toLocaleDateString("pt-BR",{weekday:"long",day:"2-digit",month:"long"})}
+        </h3>
+        <p style={{fontSize:11,color:"#94a3b8",margin:"0 0 16px",fontFamily:"monospace"}}>
+          Turno {turnoLider}
+        </p>
+
+        {!podeEditar && (
+          <div style={{background:"#f0f9ff",border:"1px solid #bae6fd",borderRadius:8,
+            padding:"9px 13px",marginBottom:14,fontSize:11,color:"#0284c7"}}>
+            ℹ️ Apenas o Líder do turno pode atribuir funções. Você está vendo a escala definida.
+          </div>
+        )}
+
+        {operadoresDoTurno.length===0 ? (
+          <div style={{textAlign:"center",padding:24,color:"#94a3b8",fontSize:12}}>
+            Nenhum operador cadastrado para este turno.
+          </div>
+        ) : (
+          <div style={{display:"flex",flexDirection:"column",gap:10}}>
+            {operadoresDoTurno.map(op=>{
+              const funcaoAtual = funcaoDe(op.nome);
+              return (
+                <div key={op.id} style={{background:"#f8fafc",border:"1px solid #e2e8f0",
+                  borderRadius:9,padding:13}}>
+                  <div style={{fontSize:12,fontWeight:700,color:"#0f172a",marginBottom:8}}>
+                    {op.nome}
+                  </div>
+                  <div style={{display:"flex",gap:8}}>
+                    {Object.entries(FUNCOES_ESCALA).map(([fk,fc])=>(
+                      <button key={fk}
+                        disabled={!podeEditar}
+                        onClick={()=>podeEditar && onDefinir(dataStr, op.nome, fk)}
+                        style={{flex:1,padding:"9px 0",borderRadius:7,border:"1.5px solid",
+                          borderColor:funcaoAtual===fk?fc.cor:"#e2e8f0",
+                          background:funcaoAtual===fk?fc.bg:"#fff",
+                          color:funcaoAtual===fk?fc.cor:"#94a3b8",
+                          fontSize:12,fontWeight:700,
+                          cursor:podeEditar?"pointer":"default",
+                          opacity:podeEditar?1:0.7}}>
+                        {fc.icon} {fc.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        <button onClick={onFechar}
+          style={{width:"100%",marginTop:16,padding:11,background:"#f1f5f9",color:"#64748b",
+            border:"none",borderRadius:8,cursor:"pointer",fontSize:12,fontWeight:600}}>
+          Fechar
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function TelaEscala({ user, escala, setEscala, usuarios }) {
+  const hoje = new Date();
+  const [mesAtual, setMesAtual] = useState(hoje.getMonth());
+  const [anoAtual, setAnoAtual] = useState(hoje.getFullYear());
+  const [diaSelecionado, setDiaSelecionado] = useState(null);
+  const [salvando, setSalvando] = useState(false);
+  const [erro, setErro] = useState("");
+
+  const MESES = ["Janeiro","Fevereiro","Março","Abril","Maio","Junho",
+                 "Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"];
+  const DIAS_SEMANA = ["Dom","Seg","Ter","Qua","Qui","Sex","Sáb"];
+
+  // Só Líder edita, e só para o turno dele. Supervisor e Operador só visualizam.
+  const podeEditar = user.perfil === "Lider";
+  const turnoRelevante = user.perfil === "Lider" ? user.turno : null;
+
+  // Operadores do turno que estamos olhando (do Líder logado, ou "Todos" se for Supervisor/Operador vendo um turno escolhido)
+  const [turnoVisualizado, setTurnoVisualizado] = useState(
+    user.perfil==="Supervisor" ? "NOITE" : user.turno
+  );
+
+  const operadoresDoTurno = useMemo(()=>{
+    return usuarios.filter(u=>u.perfil==="Operador" && u.turno===turnoVisualizado && u.ativo!==false);
+  },[usuarios, turnoVisualizado]);
+
+  // Dados do mês atual para a grade do calendário
+  const primeiroDia = new Date(anoAtual, mesAtual, 1);
+  const ultimoDia = new Date(anoAtual, mesAtual+1, 0);
+  const diasNoMes = ultimoDia.getDate();
+  const diaSemanaInicio = primeiroDia.getDay();
+
+  const celulas = [];
+  for (let i=0; i<diaSemanaInicio; i++) celulas.push(null);
+  for (let d=1; d<=diasNoMes; d++) celulas.push(new Date(anoAtual, mesAtual, d));
+
+  const mesAnterior = () => {
+    if (mesAtual===0) { setMesAtual(11); setAnoAtual(a=>a-1); } else setMesAtual(m=>m-1);
+  };
+  const mesProximo = () => {
+    if (mesAtual===11) { setMesAtual(0); setAnoAtual(a=>a+1); } else setMesAtual(m=>m+1);
+  };
+  const irHoje = () => { setMesAtual(hoje.getMonth()); setAnoAtual(hoje.getFullYear()); };
+
+  // Escala apenas do turno visualizado, para colorir os dias do calendário
+  const escalaDoTurno = useMemo(()=>{
+    const nomesOperadores = new Set(operadoresDoTurno.map(o=>o.nome));
+    return escala.filter(e=>nomesOperadores.has(e.operador));
+  },[escala, operadoresDoTurno]);
+
+  const definirFuncao = async (dataStr, operadorNome, funcao) => {
+    setSalvando(true);
+    setErro("");
+    try {
+      const nova = await definirEscala({
+        data: dataStr,
+        turno: turnoVisualizado,
+        operador: operadorNome,
+        funcao,
+        definidoPor: user.nome,
+      });
+      setEscala(prev=>{
+        const semEsse = prev.filter(e=>!(e.data===dataStr && e.operador===operadorNome));
+        return [...semEsse, nova];
+      });
+    } catch (e) {
+      setErro("Erro ao salvar: " + (e.message || e));
+    } finally {
+      setSalvando(false);
+    }
+  };
+
+  // Resumo de quem está em qual função no dia selecionado (para o badge do dia)
+  const resumoDoDia = (dia) => {
+    if (!dia) return null;
+    const dataStr = dia.toISOString().split("T")[0];
+    const doDia = escalaDoTurno.filter(e=>e.data===dataStr);
+    return doDia;
+  };
+
+  const isHoje = (dia) => dia && dia.toDateString() === hoje.toDateString();
+
+  return (
+    <div>
+      <PH title="📅 Escala de Funções" subtitle="Farelo e Processo — definido pelo Líder de cada turno"/>
+
+      <div style={{padding:22}}>
+
+        {/* Aviso de permissão */}
+        {!podeEditar && (
+          <div style={{background:"#f0f9ff",border:"1px solid #bae6fd",borderRadius:8,
+            padding:"10px 14px",marginBottom:16,fontSize:12,color:"#0284c7"}}>
+            ℹ️ {user.perfil==="Supervisor"
+              ? "Como Supervisor você pode visualizar a escala de qualquer turno, mas só o Líder de cada turno pode editá-la."
+              : "Apenas o Líder do seu turno pode atribuir as funções. Você pode consultar a escala abaixo."}
+          </div>
+        )}
+
+        {/* Seletor de turno — só o Supervisor pode escolher qual turno ver */}
+        {user.perfil==="Supervisor" && (
+          <div style={{background:"#fff",borderRadius:9,padding:"10px 14px",marginBottom:16,
+            border:"1px solid #e2e8f0",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+            <span style={{fontSize:10,fontWeight:700,color:"#64748b",textTransform:"uppercase",
+              letterSpacing:.5,fontFamily:"monospace"}}>Visualizando turno:</span>
+            <div style={{display:"flex",gap:4}}>
+              {TURNOS_CONFIG.map(tc=>(
+                <button key={tc.id} onClick={()=>setTurnoVisualizado(tc.id)}
+                  style={{padding:"5px 12px",borderRadius:12,border:"1.5px solid",
+                    borderColor:turnoVisualizado===tc.id?tc.cor:"#e2e8f0",
+                    background:turnoVisualizado===tc.id?tc.bg:"#fff",
+                    color:turnoVisualizado===tc.id?tc.cor:"#64748b",
+                    fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"monospace"}}>
+                  {tc.id}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Legenda */}
+        <div style={{background:"#fff",borderRadius:9,padding:"10px 14px",marginBottom:16,
+          border:"1px solid #e2e8f0",display:"flex",gap:16,alignItems:"center",flexWrap:"wrap"}}>
+          <span style={{fontSize:10,fontWeight:700,color:"#64748b",textTransform:"uppercase",
+            letterSpacing:.5,fontFamily:"monospace"}}>Legenda:</span>
+          {Object.entries(FUNCOES_ESCALA).map(([fk,fc])=>(
+            <div key={fk} style={{display:"flex",alignItems:"center",gap:6}}>
+              <div style={{width:12,height:12,borderRadius:3,background:fc.cor}}/>
+              <span style={{fontSize:12,color:"#475569"}}>{fc.icon} {fc.label}</span>
+            </div>
+          ))}
+          <span style={{fontSize:11,color:"#94a3b8",marginLeft:"auto"}}>
+            {operadoresDoTurno.length} operador{operadoresDoTurno.length!==1?"es":""} no turno {turnoVisualizado}
+          </span>
+        </div>
+
+        {/* Navegação do calendário */}
+        <div style={{background:"#fff",borderRadius:12,padding:18,border:"1px solid #e2e8f0",
+          boxShadow:"0 1px 4px rgba(0,0,0,.05)"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+            <button onClick={mesAnterior}
+              style={{padding:"7px 13px",background:"#f1f5f9",border:"none",borderRadius:7,
+                cursor:"pointer",fontSize:13,fontWeight:700,color:"#475569"}}>
+              ←
+            </button>
+            <div style={{textAlign:"center"}}>
+              <div style={{fontSize:15,fontWeight:800,color:"#0f172a"}}>
+                {MESES[mesAtual]} {anoAtual}
+              </div>
+              <button onClick={irHoje}
+                style={{fontSize:10,color:"#0ea5e9",background:"none",border:"none",
+                  cursor:"pointer",fontWeight:600,marginTop:2}}>
+                Ir para hoje
+              </button>
+            </div>
+            <button onClick={mesProximo}
+              style={{padding:"7px 13px",background:"#f1f5f9",border:"none",borderRadius:7,
+                cursor:"pointer",fontSize:13,fontWeight:700,color:"#475569"}}>
+              →
+            </button>
+          </div>
+
+          {/* Cabeçalho dias da semana */}
+          <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:4,marginBottom:6}}>
+            {DIAS_SEMANA.map(d=>(
+              <div key={d} style={{textAlign:"center",fontSize:10,fontWeight:700,color:"#94a3b8",
+                fontFamily:"monospace",padding:"4px 0"}}>
+                {d}
+              </div>
+            ))}
+          </div>
+
+          {/* Grade do calendário */}
+          <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:4}}>
+            {celulas.map((dia,i)=>{
+              if (!dia) return <div key={i}/>;
+              const atribs = resumoDoDia(dia) || [];
+              const hojeFlag = isHoje(dia);
+              return (
+                <button key={i} onClick={()=>setDiaSelecionado(dia)}
+                  style={{minHeight:64,padding:"6px 4px",borderRadius:8,
+                    border:`1.5px solid ${hojeFlag?"#0ea5e9":"#e2e8f0"}`,
+                    background:hojeFlag?"#f0f9ff":"#fff",cursor:"pointer",
+                    display:"flex",flexDirection:"column",alignItems:"center",
+                    gap:3,textAlign:"center"}}>
+                  <span style={{fontSize:12,fontWeight:hojeFlag?800:600,
+                    color:hojeFlag?"#0284c7":"#1e293b"}}>
+                    {dia.getDate()}
+                  </span>
+                  <div style={{display:"flex",flexWrap:"wrap",gap:2,justifyContent:"center"}}>
+                    {atribs.slice(0,4).map((a,j)=>{
+                      const fc = FUNCOES_ESCALA[a.funcao];
+                      return (
+                        <div key={j} title={`${a.operador}: ${fc?.label}`}
+                          style={{width:7,height:7,borderRadius:"50%",background:fc?.cor||"#94a3b8"}}/>
+                      );
+                    })}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {erro && (
+          <div style={{background:"#fff1f2",border:"1px solid #fca5a5",borderRadius:6,
+            padding:"8px 12px",color:"#dc2626",fontSize:12,marginTop:12}}>
+            {erro}
+          </div>
+        )}
+      </div>
+
+      {/* Modal do dia selecionado */}
+      {diaSelecionado && (
+        <DiaEscalaModal
+          dia={diaSelecionado}
+          turnoLider={turnoVisualizado}
+          operadoresDoTurno={operadoresDoTurno}
+          escalaDoMes={escalaDoTurno}
+          podeEditar={podeEditar && turnoVisualizado===turnoRelevante}
+          onDefinir={definirFuncao}
+          onFechar={()=>setDiaSelecionado(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════
 // LOGIN
 // ══════════════════════════════════════════════════════════════════
 function TelaLogin({onLogin}) {
   const [email,setEmail]=useState(""); const [senha,setSenha]=useState(""); const [erro,setErro]=useState(""); const [load,setLoad]=useState(false);
-  const go=()=>{setLoad(true);setErro("");setTimeout(()=>{const u=USUARIOS.find(x=>x.email===email&&x.senha===senha);if(u)onLogin(u);else setErro("Credenciais inválidas.");setLoad(false);},700);};
+  const go=async()=>{
+    if(!email||!senha) return;
+    setLoad(true); setErro("");
+    try {
+      const u = await apiLogin(email, senha);
+      if(u) onLogin(u);
+      else setErro("Credenciais inválidas ou usuário inativo.");
+    } catch(e) {
+      setErro("Erro ao conectar com o servidor. Tente novamente.");
+      console.error(e);
+    } finally {
+      setLoad(false);
+    }
+  };
   return (
     <div style={{minHeight:"100vh",background:"linear-gradient(135deg,#0f172a 0%,#1e293b 100%)",display:"flex",alignItems:"center",justifyContent:"center",padding:24,fontFamily:"'DM Sans',sans-serif"}}>
       <div style={{width:"100%",maxWidth:400}}>
@@ -5374,10 +6639,6 @@ function TelaLogin({onLogin}) {
           ))}
           {erro&&<div style={{background:"#fef2f2",border:"1px solid #fca5a5",borderRadius:5,padding:"8px 12px",color:"#dc2626",fontSize:12,marginBottom:10}}>{erro}</div>}
           <button onClick={go} style={{width:"100%",padding:11,background:load?"#0369a1":"linear-gradient(135deg,#0ea5e9,#0284c7)",color:"#fff",border:"none",borderRadius:8,fontSize:14,fontWeight:700,cursor:load?"wait":"pointer",boxShadow:"0 4px 14px rgba(14,165,233,.3)"}}>{load?"Autenticando...":"Entrar →"}</button>
-          <div style={{marginTop:12,padding:"9px 12px",background:"rgba(14,165,233,.05)",border:"1px solid rgba(14,165,233,.12)",borderRadius:7}}>
-            <div style={{fontSize:9,color:"#64748b",marginBottom:4,fontFamily:"monospace",textTransform:"uppercase",letterSpacing:1}}>Contas de teste</div>
-            {USUARIOS.map(u=><div key={u.id} onClick={()=>{setEmail(u.email);setSenha(u.senha)}} style={{fontSize:11,color:"#0ea5e9",cursor:"pointer",fontFamily:"monospace",marginBottom:2}}>{u.email} <span style={{color:"#475569"}}>· {u.perfil}</span></div>)}
-          </div>
         </div>
       </div>
     </div>
@@ -5614,7 +6875,7 @@ function BoletimItem({ b, assinaturas, onAbrirAss, onAdicionarFoto }) {
               </div>
 
               {/* Grid de cards de assinatura */}
-              <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:11,marginBottom:14}}>
+              <div className="grid-3" style={{display:"grid",gap:11,marginBottom:14}}>
                 {PERFIS_ASSINATURA.map(p=>(
                   <CardAss key={p.id} perfil={p.id} assinaturas={ass}
                     onAbrir={()=>onAbrirAss(b.data, p.id)}/>
@@ -5696,7 +6957,7 @@ function BoletimItem({ b, assinaturas, onAbrirAss, onAdicionarFoto }) {
                   </div>
                 </div>
               ) : (
-                <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10}}>
+                <div className="grid-3" style={{display:"grid",gap:10}}>
                   {fotos.map((foto,i)=>(
                     <div key={foto.id} style={{borderRadius:8,overflow:"hidden",
                       border:"1px solid #e2e8f0",boxShadow:"0 1px 3px rgba(0,0,0,.06)"}}>
@@ -5836,7 +7097,7 @@ function TelaAssinaturas({ registros }) {
       <div style={{padding:24}}>
 
         {/* Cards de status */}
-        <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12,marginBottom:20}}>
+        <div className="grid-4" style={{display:"grid",gap:12,marginBottom:20}}>
           <SC label="Boletins"    value={stats.total}            icon="📋" color="#0ea5e9"/>
           <SC label="Aprovados"   value={stats.aprovados}        icon="✅" color="#16a34a"/>
           <SC label="Pendentes"   value={stats.pendentes}        icon="🔒" color="#dc2626"/>
@@ -6075,7 +7336,7 @@ function TelaDashboard({user, setPagina, registros, metas=METAS_DEFAULT}) {
 
           {/* Grid de semáforos */}
           {mediasTurno ? (
-            <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10}}>
+            <div className="grid-4" style={{display:"grid",gap:10}}>
               {[
                 ["Proteína Farelo","proteina",mediasTurno.proteina,"%","ProteinaFarelo",metas],
                 ["Umid. Farelo",   "umid",    mediasTurno.umid,    "%","UmidFarelo",    metas],
@@ -6202,7 +7463,7 @@ function TelaDashboard({user, setPagina, registros, metas=METAS_DEFAULT}) {
               </div>
 
               {/* Detalhamento dos 4 critérios */}
-              <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10}}>
+              <div className="grid-4" style={{display:"grid",gap:10}}>
                 {[
                   ["Conformidade KPIs",  score.ptConf,  50, "#8b5cf6"],
                   ["Registros no prazo", score.ptPrazo, 20, "#0ea5e9"],
@@ -6250,7 +7511,7 @@ function TelaDashboard({user, setPagina, registros, metas=METAS_DEFAULT}) {
         })()}
 
         {/* Cards de resumo do dia */}
-        <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12,marginBottom:18}}>
+        <div className="grid-4" style={{display:"grid",gap:12,marginBottom:18}}>
           <SC label="Registros hoje"   value={regsHoje.length}    icon="📋" color="#0ea5e9"
             sub={`${regsTurno.length} neste turno`}/>
           <SC label="Pendentes"        value={pendentes}           icon="⏳" color="#d97706"
@@ -6267,7 +7528,7 @@ function TelaDashboard({user, setPagina, registros, metas=METAS_DEFAULT}) {
           <div style={{fontSize:13,fontWeight:800,color:"#0f172a",marginBottom:14}}>
             Comparativo de Turnos — Hoje
           </div>
-          <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:12}}>
+          <div className="grid-3" style={{display:"grid",gap:12}}>
             {TURNOS_CONFIG.map(t=>{
               const regs = regsHoje.filter(r=>r.turno===t.id);
               const prot = regs.filter(r=>r.ProteinaFarelo);
@@ -6302,7 +7563,7 @@ function TelaDashboard({user, setPagina, registros, metas=METAS_DEFAULT}) {
                       fontFamily:"monospace",fontWeight:700}}>ATUAL</span>}
                   </div>
                   <div style={{padding:"11px 13px"}}>
-                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                    <div className="grid-2" style={{display:"grid",gap:8}}>
                       <div>
                         <div style={{fontSize:9,color:"#94a3b8",fontFamily:"monospace",marginBottom:3}}>
                           Registros
@@ -6346,7 +7607,7 @@ function TelaDashboard({user, setPagina, registros, metas=METAS_DEFAULT}) {
         </div>
 
         {/* Atalhos rápidos */}
-        <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10,marginBottom:18}}>
+        <div className="grid-4" style={{display:"grid",gap:10,marginBottom:18}}>
           {[
             {id:"kpis_moagem", icon:"🧪", title:"KPIs Moagem",     desc:"Registrar análise",    color:"#8b5cf6"},
             {id:"mais_kpis",   icon:"⚙",  title:"+ KPIs",          desc:"Laminadores & quebra", color:"#dc2626"},
@@ -6427,99 +7688,211 @@ function TelaDashboard({user, setPagina, registros, metas=METAS_DEFAULT}) {
 }
 
 // ══════════════════════════════════════════════════════════════════
-// APP PRINCIPAL — com persistência via Storage do Artefato
+// APP PRINCIPAL — com persistência via Supabase (banco compartilhado)
 // ══════════════════════════════════════════════════════════════════
 export default function App() {
-  const [user,        setUser]        = useState(null);
+  const [user,        setUser]        = useState(
+    () => { try { return JSON.parse(localStorage.getItem("sho_sessao_usuario")||"null"); } catch { return null; } }
+  );
   const [pagina,      setPagina]      = useState("dashboard");
-  const [registros,   setRegistros]   = useState(HISTORICO);
+  const [registros,   setRegistros]   = useState([]);
   const [metas,       setMetas]       = useState(METAS_DEFAULT);
   const [histCalc,    setHistCalc]    = useState([]);
   const [carregando,  setCarregando]  = useState(true);
+  const [erroConexao, setErroConexao] = useState("");
   const [salvando,    setSalvando]    = useState(false);
-  const [modoEscuro,  setModoEscuro]  = useState(false);
+  const [modoEscuro,  setModoEscuro]  = useState(
+    () => { try { return JSON.parse(localStorage.getItem("sho_modo_escuro")||"false"); } catch { return false; } }
+  );
   const [auditoria,   setAuditoria]   = useState([]);
+  const [ocorrencias, setOcorrencias] = useState([]);
+  const [relatoriosTurno, setRelatoriosTurno] = useState([]);
+  const [paradas, setParadas] = useState([]);
+  const [usuarios, setUsuarios] = useState([]);
+  const [escala, setEscala] = useState([]);
   const [mobileOpen,  setMobileOpen]  = useState(false);
 
   const tema = modoEscuro ? TEMA.escuro : TEMA.claro;
 
-  // ── Carrega dados salvos ao iniciar ──────────────────────────
-  useEffect(()=>{
-    const carregar = async () => {
-      try {
-        // Registros novos (adicionados pelo usuário — não o histórico mock)
-        const resRegs = await storage.get("sho_registros_novos");
-        if(resRegs?.value){
-          const novos = JSON.parse(resRegs.value);
-          setRegistros([...HISTORICO, ...novos]);
-        }
-        // Metas customizadas
-        const resMetas = await storage.get("sho_metas");
-        if(resMetas?.value){
-          setMetas(JSON.parse(resMetas.value));
-        }
-        // Histórico da calculadora
-        const resCalc = await storage.get("sho_hist_calc");
-        if(resCalc?.value){
-          setHistCalc(JSON.parse(resCalc.value));
-        }
-        // Modo escuro
-        const resTema = await storage.get("sho_modo_escuro");
-        if(resTema?.value) setModoEscuro(JSON.parse(resTema.value));
-      } catch(e){
-        console.log("Storage indisponível, usando dados em memória");
-      } finally {
-        setCarregando(false);
-      }
-    };
-    carregar();
-  },[]);
+  // ── Carrega tudo do Supabase ao iniciar ──────────────────────
+  const carregarTudo = async () => {
+    try {
+      const [regs, mts, audit, calc, ocor, relTurno, parad, usrs, esc] = await Promise.all([
+        listarRegistros(),
+        listarMetas(),
+        listarAuditoria(),
+        listarHistCalc(),
+        listarOcorrencias(),
+        listarRelatoriosTurno(),
+        listarParadas(),
+        listarUsuarios(),
+        listarEscala(),
+      ]);
+      setRegistros(regs);
+      // Se o banco ainda não tem metas (primeira execução do schema.sql
+      // não rodou), cai de volta nas metas padrão do código.
+      setMetas(Object.keys(mts).length ? mts : METAS_DEFAULT);
+      setAuditoria(audit);
+      setHistCalc(calc);
+      setOcorrencias(ocor);
+      setRelatoriosTurno(relTurno);
+      setParadas(parad);
+      setUsuarios(usrs);
+      setEscala(esc);
+      setErroConexao("");
+    } catch (e) {
+      console.error("Erro ao conectar no Supabase:", e);
+      setErroConexao(
+        "Não foi possível conectar ao banco de dados. Verifique se as variáveis " +
+        "VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY estão configuradas (.env) e " +
+        "se o schema.sql foi executado no seu projeto Supabase."
+      );
+    } finally {
+      setCarregando(false);
+    }
+  };
 
-  // ── Persiste registros novos quando mudam ────────────────────
-  useEffect(()=>{
-    if(carregando) return;
-    const salvar = async () => {
-      try {
-        setSalvando(true);
-        // Salva apenas os registros novos (sem o histórico mock)
-        const novos = registros.filter(r=>r.id > HISTORICO.length);
-        await storage.set("sho_registros_novos", JSON.stringify(novos));
-      } catch(e){}
-      finally { setSalvando(false); }
-    };
-    const debounce = setTimeout(salvar, 800);
-    return ()=>clearTimeout(debounce);
-  },[registros, carregando]);
+  useEffect(() => { carregarTudo(); }, []);
 
-  // ── Persiste metas quando mudam ──────────────────────────────
-  useEffect(()=>{
-    if(carregando) return;
-    const salvar = async () => {
-      try { await storage.set("sho_metas", JSON.stringify(metas)); } catch(e){}
-    };
-    salvar();
-  },[metas, carregando]);
+  // ── Realtime: qualquer dispositivo que salvar atualiza todos os outros ──
+  useEffect(() => {
+    const cancelar = assinarMudancas(() => { carregarTudo(); });
+    return cancelar;
+  }, []);
 
-  // ── Persiste histórico da calculadora ────────────────────────
-  useEffect(()=>{
-    if(carregando) return;
-    const salvar = async () => {
-      try { await storage.set("sho_hist_calc", JSON.stringify(histCalc)); } catch(e){}
-    };
-    salvar();
-  },[histCalc, carregando]);
-
-  // ── Persiste modo escuro ──────────────────────────────────────
-  useEffect(()=>{
-    if(carregando) return;
-    const salvar = async () => {
-      try { await storage.set("sho_modo_escuro", JSON.stringify(modoEscuro)); } catch(e){}
-    };
-    salvar();
-    // Aplica classe no body para fontes e scrollbar
+  // ── Modo escuro fica salvo no dispositivo (preferência visual, não dado compartilhado) ──
+  useEffect(() => {
+    try { localStorage.setItem("sho_modo_escuro", JSON.stringify(modoEscuro)); } catch {}
     document.body.style.background = modoEscuro ? TEMA.escuro.bg : TEMA.claro.bg;
     document.body.style.transition = "background .3s";
-  },[modoEscuro, carregando]);
+  }, [modoEscuro]);
+
+  // ── Wrappers que escrevem no Supabase e atualizam o estado local ──
+  // As telas chamam setRegistros(...) como sempre faziam (com uma função
+  // de atualização ou um array novo); aqui interceptamos para também
+  // persistir a mudança no banco, mantendo a mesma assinatura de uso.
+  const setRegistrosSync = (atualizador) => {
+    setRegistros((atual) => {
+      const novo = typeof atualizador === "function" ? atualizador(atual) : atualizador;
+      sincronizarRegistros(atual, novo);
+      return novo;
+    });
+  };
+
+  const sincronizarRegistros = async (antigos, novos) => {
+    setSalvando(true);
+    try {
+      const antigosPorId = new Map(antigos.map((r) => [r.id, r]));
+      const novosPorId   = new Map(novos.map((r) => [r.id, r]));
+
+      // Registros novos (ids "temp_..." ainda não existem no banco)
+      for (const r of novos) {
+        if (typeof r.id === "string" && r.id.startsWith("temp_")) {
+          const salvo = await criarRegistro(r);
+          setRegistros((atual) => atual.map((x) => (x.id === r.id ? salvo : x)));
+        } else if (antigosPorId.has(r.id)) {
+          const antigo = antigosPorId.get(r.id);
+          if (
+            antigo.status !== r.status ||
+            antigo.validadoPor !== r.validadoPor ||
+            antigo.obsLivre !== r.obsLivre
+          ) {
+            await atualizarRegistro(r.id, {
+              status: r.status,
+              validadoPor: r.validadoPor,
+              dataValidacao: r.dataValidacao,
+              desvios: r.desvios,
+              justificativas: r.justificativas,
+              justificativasArr: r.justificativasArr,
+              obsLivre: r.obsLivre,
+            });
+          }
+        }
+      }
+    } catch (e) {
+      console.error("Erro ao sincronizar registros:", e);
+    } finally {
+      setSalvando(false);
+    }
+  };
+
+  const setMetasSync = (atualizador) => {
+    setMetas((atual) => {
+      const novo = typeof atualizador === "function" ? atualizador(atual) : atualizador;
+      sincronizarMetas(atual, novo);
+      return novo;
+    });
+  };
+
+  const sincronizarMetas = async (antigas, novas) => {
+    setSalvando(true);
+    try {
+      for (const campo of Object.keys(novas)) {
+        const a = antigas[campo], n = novas[campo];
+        if (!a || a.min !== n.min || a.max !== n.max) {
+          await salvarMeta(campo, { min: n.min, max: n.max });
+        }
+      }
+    } catch (e) {
+      console.error("Erro ao sincronizar metas:", e);
+    } finally {
+      setSalvando(false);
+    }
+  };
+
+  const setHistCalcSync = (atualizador) => {
+    setHistCalc((atual) => {
+      const novo = typeof atualizador === "function" ? atualizador(atual) : atualizador;
+      const adicionado = novo.find((h) => !atual.some((x) => x.id === h.id));
+      if (adicionado && user) {
+        salvarHistCalc(user.nome, adicionado).catch((e) =>
+          console.error("Erro ao salvar histórico da calculadora:", e)
+        );
+      }
+      return novo;
+    });
+  };
+
+  const setAuditoriaSync = (atualizador) => {
+    setAuditoria((atual) => {
+      const novo = typeof atualizador === "function" ? atualizador(atual) : atualizador;
+      const adicionado = novo.find((a) => !atual.some((x) => x.id === a.id));
+      if (adicionado) {
+        registrarAuditoriaBackend(adicionado.tipo, { nome: adicionado.usuario, perfil: adicionado.perfil }, adicionado.detalhes)
+          .catch((e) => console.error("Erro ao registrar auditoria:", e));
+      }
+      return novo;
+    });
+  };
+
+  // ── Login real contra a tabela usuarios do Supabase ──────────
+  const handleLogin = async (u) => {
+    setUser(u);
+    try { localStorage.setItem("sho_sessao_usuario", JSON.stringify(u)); } catch {}
+    setPagina("dashboard");
+  };
+
+  // ── Tela de erro de conexão ───────────────────────────────────
+  if (erroConexao) return (
+    <div style={{minHeight:"100vh",background:"#0f172a",display:"flex",
+      alignItems:"center",justifyContent:"center",padding:24}}>
+      <div style={{maxWidth:480,background:"#1e293b",border:"1px solid #334155",
+        borderRadius:14,padding:28,textAlign:"center"}}>
+        <div style={{fontSize:32,marginBottom:12}}>⚠️</div>
+        <div style={{color:"#f1f5f9",fontSize:15,fontWeight:700,marginBottom:10}}>
+          Erro de conexão com o banco de dados
+        </div>
+        <div style={{color:"#94a3b8",fontSize:13,lineHeight:1.6,marginBottom:16}}>
+          {erroConexao}
+        </div>
+        <button onClick={carregarTudo}
+          style={{padding:"10px 20px",background:"linear-gradient(135deg,#0ea5e9,#0284c7)",
+            color:"#fff",border:"none",borderRadius:8,fontSize:13,fontWeight:700,cursor:"pointer"}}>
+          Tentar novamente
+        </button>
+      </div>
+    </div>
+  );
 
   // ── Tela de carregamento ─────────────────────────────────────
   if(carregando) return (
@@ -6531,7 +7904,7 @@ export default function App() {
       </div>
       <div style={{color:"#f1f5f9",fontSize:14,fontWeight:700}}>Carregando sistema...</div>
       <div style={{color:"#475569",fontSize:11,fontFamily:"monospace"}}>
-        Restaurando dados salvos
+        Conectando ao banco de dados
       </div>
       <div style={{width:120,height:4,background:"#1e293b",borderRadius:2,overflow:"hidden"}}>
         <div style={{width:"60%",height:"100%",background:"#0ea5e9",borderRadius:2,
@@ -6540,22 +7913,25 @@ export default function App() {
     </div>
   );
 
-  if(!user) return <TelaLogin onLogin={u=>{setUser(u);setPagina("dashboard");}}/>;
+  if(!user) return <TelaLogin onLogin={handleLogin}/>;
 
   const telas={
     dashboard:       <TelaDashboard      user={user} setPagina={setPagina} registros={registros} metas={metas}/>,
     gerencial:       <TelaGerencial      registros={registros} metas={metas}/>,
-    kpis_moagem:     <TelaKpisMoagem     user={user} registros={registros} setRegistros={setRegistros} metas={metas}/>,
-    mais_kpis:       <TelaMaisKpis       user={user} registros={registros} setRegistros={setRegistros}/>,
-    calculadora:     <TelaCalculadora    user={user} histCalc={histCalc} setHistCalc={setHistCalc}/>,
+    kpis_moagem:     <TelaKpisMoagem     user={user} registros={registros} setRegistros={setRegistrosSync} metas={metas}/>,
+    mais_kpis:       <TelaMaisKpis       user={user} registros={registros} setRegistros={setRegistrosSync}/>,
+    ocorrencias:     <TelaOcorrencias    user={user} ocorrencias={ocorrencias} setOcorrencias={setOcorrencias}/>,
+    paradas:         <TelaParadas        user={user} paradas={paradas} setParadas={setParadas} auditoria={auditoria} setAuditoria={setAuditoria}/>,
+    escala:          <TelaEscala         user={user} escala={escala} setEscala={setEscala} usuarios={usuarios}/>,
+    calculadora:     <TelaCalculadora    user={user} histCalc={histCalc} setHistCalc={setHistCalcSync}/>,
     rastreabilidade: <TelaRastreabilidade registros={registros} metas={metas}/>,
-    verificacao:     <TelaVerificacao    registros={registros} setRegistros={setRegistros} auditoria={auditoria} setAuditoria={setAuditoria} user={user}/>,
+    verificacao:     <TelaVerificacao    registros={registros} setRegistros={setRegistrosSync} auditoria={auditoria} setAuditoria={setAuditoriaSync} user={user}/>,
     assinaturas:     <TelaAssinaturas    registros={registros}/>,
     acoes:           <TelaAcoes          user={user}/>,
     acoes_kpi:       <TelaAcoesKpi       registros={registros} user={user}/>,
-    relatorios:      <TelaRelatorios     registros={registros} user={user} metas={metas}/>,
+    relatorios:      <TelaRelatorios     registros={registros} user={user} metas={metas} relatoriosTurno={relatoriosTurno} setRelatoriosTurno={setRelatoriosTurno}/>,
     auditoria:       <TelaAuditoria      auditoria={auditoria}/>,
-    cadastros:       <TelaCadastros      user={user} metas={metas} setMetas={setMetas} auditoria={auditoria} setAuditoria={setAuditoria}/>,
+    cadastros:       <TelaCadastros      user={user} metas={metas} setMetas={setMetasSync} auditoria={auditoria} setAuditoria={setAuditoriaSync} usuarios={usuarios} setUsuarios={setUsuarios}/>,
   };
 
   return (
@@ -6564,7 +7940,7 @@ export default function App() {
       fontFamily:"'DM Sans',sans-serif",
       transition:"background .3s"}}>
       <Sidebar user={user} pagina={pagina} setPagina={setPagina}
-        onLogout={()=>{setUser(null);setPagina("dashboard");}}
+        onLogout={()=>{setUser(null);try{localStorage.removeItem("sho_sessao_usuario");}catch{};setPagina("dashboard");}}
         registros={registros}
         modoEscuro={modoEscuro} setModoEscuro={setModoEscuro}
         mobileOpen={mobileOpen} setMobileOpen={setMobileOpen}/>
