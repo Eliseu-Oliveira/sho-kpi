@@ -238,3 +238,34 @@ create index if not exists idx_escala_operador on escala_funcoes (operador);
 
 alter table escala_funcoes enable row level security;
 create policy "permite tudo - escala_funcoes" on escala_funcoes for all using (true) with check (true);
+
+-- ────────────────────────────────────────────────────────────────
+-- TABELA: sho_turno
+-- Formulário "Shift Hand Over (SHO) — Agenda da Troca de Turno"
+-- preenchido pelo Operador de Saída ao final do turno, confirmado
+-- pelo Operador de Entrada. Campos numéricos/booleanos diversos
+-- ficam em "dados" (jsonb) para não precisar de 25+ colunas fixas;
+-- os campos centrais (data, turno, operadores, tema DDS, relatório)
+-- ficam em colunas próprias para facilitar busca e relatórios.
+-- ────────────────────────────────────────────────────────────────
+create table if not exists sho_turno (
+  id                  uuid primary key default gen_random_uuid(),
+  data                date not null,
+  turno               text not null check (turno in ('NOITE','MANHÃ','TARDE')),
+  tema_dds            text not null default '',
+  relatorio_turno     text not null default '',
+  operador_saida      text not null,
+  operador_entrada    text,
+  status              text not null default 'AGUARDANDO_ENTRADA'
+                      check (status in ('AGUARDANDO_ENTRADA','CONFIRMADO')),
+  dados               jsonb not null default '{}'::jsonb,
+  data_confirmacao    timestamptz,
+  created_at          timestamptz not null default now()
+);
+
+create index if not exists idx_sho_turno_data on sho_turno (data);
+create index if not exists idx_sho_turno_turno on sho_turno (turno);
+create index if not exists idx_sho_turno_status on sho_turno (status);
+
+alter table sho_turno enable row level security;
+create policy "permite tudo - sho_turno" on sho_turno for all using (true) with check (true);

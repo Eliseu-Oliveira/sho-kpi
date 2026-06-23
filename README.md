@@ -28,6 +28,7 @@ via Supabase — os dados são compartilhados entre todos os dispositivos
 >   na tela de Relatórios (inclui o controle de Hexano puxado)
 > - `supabase/migration_paradas_fabrica.sql` — tela "Paradas de Fábrica"
 > - `supabase/migration_escala_funcoes.sql` — tela "Escala de Funções"
+> - `supabase/migration_sho_turno.sql` — tela "SHO Troca Turno"
 
 ## Passo 2 — Configurar o projeto localmente
 
@@ -126,6 +127,14 @@ no `localStorage` do navegador, igual a qualquer site comum.
   (ou Supervisor) valida ou rejeita cada registro. A tela mostra a
   somatória de minutos **validados** separada por turno (Noite/Manhã/Tarde),
   com opção de ver o total do dia ou do mês.
+- **SHO Troca Turno** — digitalização completa do formulário em papel
+  "Shift Hand Over" usado na planta: produtividade (soja, farelo, laminadores,
+  vapor, LEX), segurança, qualidade por tipo de farelo (Moído/Floculado/Hipro)
+  e 5S. O Operador de Saída preenche tudo, incluindo o relatório do turno em
+  texto livre; qualquer outro operador (o que está assumindo) confirma o
+  recebimento com um clique, registrando seu nome como "Operador de Entrada".
+  Quem preencheu não consegue confirmar a própria entrada — a confirmação
+  precisa vir de outra pessoa, replicando as duas assinaturas do papel.
 - **Escala de Funções** — calendário mensal onde o Líder de cada turno
   define se cada operador do seu turno está em **Farelo** ou **Processo**
   naquele dia. Cada Líder só atribui para os operadores do próprio turno

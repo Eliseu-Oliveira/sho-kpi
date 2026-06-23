@@ -11,6 +11,7 @@ import {
   listarRelatoriosTurno, criarRelatorioTurno, excluirRelatorioTurno,
   listarParadas, criarParada, atualizarParada, excluirParada,
   listarEscala, definirEscala, excluirEscala,
+  listarSHOTurno, criarSHOTurno, confirmarSHOTurno, excluirSHOTurno,
   assinarMudancas,
 } from "./api";
 
@@ -869,6 +870,7 @@ function Sidebar({user, pagina, setPagina, onLogout, registros, modoEscuro, setM
   const NAV=[
     {id:"dashboard",      icon:"📊", label:"Dashboard",        perfis:["Operador","Lider","Supervisor"]},
     {id:"gerencial",      icon:"📈", label:"Painel Gerencial", perfis:["Lider","Supervisor"]},
+    {id:"sho_turno",      icon:"📋", label:"SHO Troca Turno",  perfis:["Operador","Lider","Supervisor"]},
     {id:"kpis_moagem",    icon:"🧪", label:"KPIs Moagem",      perfis:["Operador","Lider","Supervisor"]},
     {id:"mais_kpis",      icon:"⚙",  label:"+ KPIs",           perfis:["Operador","Lider","Supervisor"]},
     {id:"paradas",        icon:"⏱",  label:"Paradas de Fábrica", perfis:["Operador","Lider","Supervisor"]},
@@ -6603,6 +6605,570 @@ function TelaEscala({ user, escala, setEscala, usuarios }) {
 }
 
 // ══════════════════════════════════════════════════════════════════
+// SHO TURNO — Shift Hand Over / Agenda da Troca de Turno
+// Digitaliza o formulário em papel: Operador de Saída preenche,
+// Operador de Entrada confirma.
+// ══════════════════════════════════════════════════════════════════
+
+// Pergunta Sim/Não com campo de detalhe condicional
+function PerguntaSimNao({ label, valor, detalhe, onChangeValor, onChangeDetalhe, labelDetalhe="Motivo / detalhe" }) {
+  return (
+    <div style={{background:"#f8fafc",border:"1px solid #e2e8f0",borderRadius:8,padding:12,marginBottom:9}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+        <span style={{fontSize:12,fontWeight:600,color:"#1e293b",flex:1}}>{label}</span>
+        <div style={{display:"flex",gap:6}}>
+          <button onClick={()=>onChangeValor(true)}
+            style={{padding:"5px 14px",borderRadius:6,border:"1.5px solid",
+              borderColor:valor===true?"#16a34a":"#e2e8f0",
+              background:valor===true?"#f0fdf4":"#fff",
+              color:valor===true?"#16a34a":"#94a3b8",
+              fontSize:11,fontWeight:700,cursor:"pointer"}}>
+            Sim
+          </button>
+          <button onClick={()=>onChangeValor(false)}
+            style={{padding:"5px 14px",borderRadius:6,border:"1.5px solid",
+              borderColor:valor===false?"#dc2626":"#e2e8f0",
+              background:valor===false?"#fff1f2":"#fff",
+              color:valor===false?"#dc2626":"#94a3b8",
+              fontSize:11,fontWeight:700,cursor:"pointer"}}>
+            Não
+          </button>
+        </div>
+      </div>
+      {valor===true && onChangeDetalhe && (
+        <input type="text" value={detalhe||""} onChange={e=>onChangeDetalhe(e.target.value)}
+          placeholder={labelDetalhe}
+          style={{width:"100%",marginTop:8,padding:"7px 10px",borderRadius:6,
+            border:"1.5px solid #e2e8f0",fontSize:12,boxSizing:"border-box"}}/>
+      )}
+    </div>
+  );
+}
+
+function CampoNumerico({ label, meta, valor, onChange, placeholder }) {
+  return (
+    <div style={{marginBottom:9}}>
+      <label style={{display:"flex",justifyContent:"space-between",fontSize:9,fontWeight:700,
+        color:"#64748b",textTransform:"uppercase",letterSpacing:.5,fontFamily:"monospace",marginBottom:4}}>
+        <span>{label}</span>
+        {meta && <span style={{color:"#94a3b8",textTransform:"none",letterSpacing:0}}>{meta}</span>}
+      </label>
+      <input type="number" step="0.01" value={valor||""} onChange={e=>onChange(e.target.value)}
+        placeholder={placeholder||"—"}
+        style={{width:"100%",padding:"8px 10px",borderRadius:6,border:"1.5px solid #e2e8f0",
+          fontSize:13,fontFamily:"monospace",fontWeight:600,boxSizing:"border-box"}}/>
+    </div>
+  );
+}
+
+function SHOTurnoCard({ s, podeConfirmar, onConfirmar, onAbrir }) {
+  const tc = TURNOS_CONFIG.find(t=>t.id===s.turno);
+  const aguardando = s.status === "AGUARDANDO_ENTRADA";
+  return (
+    <div style={{background:"#fff",borderRadius:10,border:"1px solid #e2e8f0",
+      borderLeft:`4px solid ${aguardando?"#f59e0b":"#16a34a"}`,
+      padding:14,marginBottom:10,boxShadow:"0 1px 3px rgba(0,0,0,.04)"}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:12}}>
+        <div style={{flex:1,minWidth:0,cursor:"pointer"}} onClick={()=>onAbrir(s)}>
+          <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:6,flexWrap:"wrap"}}>
+            <span style={{fontSize:12,fontWeight:700,color:"#0f172a"}}>
+              {new Date(s.data+"T12:00:00").toLocaleDateString("pt-BR")}
+            </span>
+            {tc && (
+              <span style={{fontSize:9,background:tc.bg,color:tc.cor,padding:"2px 7px",
+                borderRadius:4,fontFamily:"monospace",fontWeight:700}}>
+                {s.turno}
+              </span>
+            )}
+            <span style={{fontSize:9,background:aguardando?"#fffbeb":"#f0fdf4",
+              color:aguardando?"#d97706":"#16a34a",padding:"2px 8px",borderRadius:4,
+              fontFamily:"monospace",fontWeight:700}}>
+              {aguardando?"⏳ Aguardando entrada":"✓ Confirmado"}
+            </span>
+          </div>
+          <div style={{fontSize:11,color:"#64748b"}}>
+            Saída: <b style={{color:"#1e293b"}}>{s.operadorSaida}</b>
+            {s.operadorEntrada && <> · Entrada: <b style={{color:"#1e293b"}}>{s.operadorEntrada}</b></>}
+          </div>
+          {s.temaDDS && (
+            <div style={{fontSize:11,color:"#94a3b8",marginTop:4,fontStyle:"italic"}}>
+              DDS: {s.temaDDS}
+            </div>
+          )}
+        </div>
+        {podeConfirmar && aguardando && (
+          <button onClick={()=>onConfirmar(s)}
+            style={{padding:"7px 13px",background:"#dcfce7",border:"1px solid #86efac",
+              borderRadius:6,color:"#16a34a",fontWeight:700,fontSize:11,cursor:"pointer",
+              whiteSpace:"nowrap"}}>
+            ✓ Confirmar Entrada
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function TelaSHOTurno({ user, shoTurnos, setShoTurnos, metas=METAS_DEFAULT }) {
+  const hoje = new Date();
+  const turnoAtual = detectarTurno();
+  const [modal, setModal] = useState(false);
+  const [visualizando, setVisualizando] = useState(null); // SHO sendo visualizado (read-only)
+  const [confirmando, setConfirmando] = useState(null); // SHO sendo confirmado pelo Op. Entrada
+  const [salvando, setSalvando] = useState(false);
+  const [erro, setErro] = useState("");
+  const [filtroStatus, setFiltroStatus] = useState("Todos");
+
+  const TIPOS_FARELO = ["Moído","Floculado","Hipro"];
+
+  const formVazio = () => ({
+    data: hoje.toISOString().split("T")[0],
+    turno: turnoAtual,
+    temaDDS: "",
+    relatorioTurno: "",
+    // Produtividade
+    mediaSojaProcessada: "", umidSojaEntrada: "", umidSojaPreparacao: "",
+    tipoFareloProduzido: "Moído", granulometriaBom: null,
+    espessuraLamina: "", pressaoLaminadores: "",
+    aspiracaoSecundaria: "", qualGraneleiro: "", qualCela: "", qualBica: "",
+    lexTurno: "", vaporRadiadoresDT: "", vaporRadiadoresMega: "",
+    limpezaRDL5533: null, limpezaFiltroManga: null,
+    dosandoCasca: null, dosandoCascaPct: "", cascaParaArmazem: null,
+    totalizacaoSoja: "", totalizacaoFarelo: "",
+    // Segurança
+    houveRelatar: null, houveRelatarQual: "",
+    // Qualidade — por tipo de farelo
+    qualidade: { Moído:{umid:"",prot:"",oleo:"",fibra:""}, Floculado:{umid:"",prot:"",oleo:"",fibra:""}, Hipro:{umid:"",prot:"",oleo:"",fibra:""} },
+    percentOleoCasca: "",
+    // 5S
+    areaLimpa: null, areaLimpaMotivo: "",
+    checklistsOk: null, checklistsMotivo: "",
+    wpoOk: null, lubrificacaoOk: null,
+  });
+
+  const [form, setForm] = useState(formVazio());
+
+  const abrirNovo = () => {
+    setForm(formVazio());
+    setErro("");
+    setModal(true);
+  };
+
+  const upd = (campo, valor) => setForm(f=>({...f, [campo]:valor}));
+  const updQualidade = (tipo, campo, valor) => setForm(f=>({
+    ...f, qualidade: {...f.qualidade, [tipo]: {...f.qualidade[tipo], [campo]:valor}}
+  }));
+
+  const salvar = async () => {
+    if (!form.relatorioTurno.trim()) { setErro("Preencha o relatório do turno."); return; }
+    setSalvando(true);
+    setErro("");
+    try {
+      const novo = await criarSHOTurno({ ...form, operadorSaida: user.nome });
+      setShoTurnos(prev=>[novo, ...prev]);
+      setModal(false);
+    } catch (e) {
+      setErro("Erro ao salvar: " + (e.message || e));
+    } finally {
+      setSalvando(false);
+    }
+  };
+
+  const confirmarEntrada = async () => {
+    if (!confirmando) return;
+    setSalvando(true);
+    try {
+      await confirmarSHOTurno(confirmando.id, user.nome);
+      setShoTurnos(prev=>prev.map(s=>s.id===confirmando.id
+        ? {...s, status:"CONFIRMADO", operadorEntrada:user.nome, dataConfirmacao:new Date().toISOString()}
+        : s));
+      setConfirmando(null);
+    } catch (e) {
+      alert("Erro ao confirmar: " + (e.message || e));
+    } finally {
+      setSalvando(false);
+    }
+  };
+
+  const filtrados = shoTurnos.filter(s=>{
+    if (filtroStatus==="Todos") return true;
+    return s.status===filtroStatus;
+  });
+
+  const aguardandoCount = shoTurnos.filter(s=>s.status==="AGUARDANDO_ENTRADA").length;
+
+  return (
+    <div>
+      <PH title="📋 SHO — Troca de Turno" subtitle="Shift Hand Over · Agenda da Troca de Turno Preparação/Extração"
+        action={
+          <button onClick={abrirNovo}
+            style={{padding:"9px 16px",background:"linear-gradient(135deg,#0f172a,#334155)",
+              color:"#fff",border:"none",borderRadius:7,fontSize:13,fontWeight:700,cursor:"pointer",
+              boxShadow:"0 4px 12px rgba(15,23,42,.25)",whiteSpace:"nowrap"}}>
+            + Preencher SHO do Turno
+          </button>
+        }/>
+
+      <div style={{padding:22}}>
+
+        <div className="grid-2" style={{display:"grid",gap:12,marginBottom:18}}>
+          <SC label="Total de SHOs" value={shoTurnos.length} icon="📋" color="#0ea5e9"/>
+          <SC label="Aguardando Confirmação" value={aguardandoCount} icon="⏳" color="#d97706"/>
+        </div>
+
+        <div style={{background:"#fff",borderRadius:9,padding:"12px 16px",marginBottom:16,
+          border:"1px solid #e2e8f0",display:"flex",gap:5}}>
+          {["Todos","AGUARDANDO_ENTRADA","CONFIRMADO"].map(s=>(
+            <button key={s} onClick={()=>setFiltroStatus(s)}
+              style={{padding:"5px 12px",borderRadius:12,border:"1.5px solid",
+                borderColor:filtroStatus===s?"#0ea5e9":"#e2e8f0",
+                background:filtroStatus===s?"#e0f2fe":"#fff",
+                color:filtroStatus===s?"#0284c7":"#64748b",
+                fontSize:11,fontWeight:600,cursor:"pointer"}}>
+              {s==="Todos"?"Todos":s==="AGUARDANDO_ENTRADA"?"Aguardando":"Confirmados"}
+            </button>
+          ))}
+        </div>
+
+        {filtrados.length===0 ? (
+          <div style={{background:"#fff",borderRadius:11,padding:40,textAlign:"center",
+            border:"1px solid #e2e8f0",color:"#94a3b8"}}>
+            <div style={{fontSize:32,marginBottom:10}}>📋</div>
+            <div style={{fontSize:13,fontWeight:600,color:"#64748b"}}>
+              Nenhum SHO registrado ainda
+            </div>
+          </div>
+        ) : (
+          filtrados.map(s=>(
+            <SHOTurnoCard key={s.id} s={s}
+              podeConfirmar={s.operadorSaida!==user.nome}
+              onConfirmar={setConfirmando}
+              onAbrir={setVisualizando}/>
+          ))
+        )}
+      </div>
+
+      {/* Modal de preenchimento (Operador de Saída) */}
+      {modal && (
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.5)",display:"flex",
+          alignItems:"center",justifyContent:"center",zIndex:200,padding:16}}>
+          <div style={{background:"#fff",borderRadius:13,padding:22,width:"100%",maxWidth:680,
+            maxHeight:"92vh",overflowY:"auto",boxShadow:"0 24px 64px rgba(0,0,0,.3)"}}>
+
+            <div style={{background:"#0f172a",borderRadius:10,padding:"14px 18px",marginBottom:16}}>
+              <div style={{fontSize:9,color:"#94a3b8",fontFamily:"monospace",textTransform:"uppercase",
+                letterSpacing:1,marginBottom:3}}>ADM Brasil · Preparação/Extração</div>
+              <h3 style={{fontSize:15,fontWeight:800,margin:0,color:"#fff"}}>
+                Shift Hand Over (SHO) — Agenda da Troca de Turno
+              </h3>
+            </div>
+
+            <div className="grid-2" style={{display:"grid",gap:10,marginBottom:14}}>
+              <div>
+                <label style={{display:"block",fontSize:9,fontWeight:700,color:"#64748b",
+                  textTransform:"uppercase",letterSpacing:.5,fontFamily:"monospace",marginBottom:4}}>
+                  Data
+                </label>
+                <input type="date" value={form.data} onChange={e=>upd("data",e.target.value)}
+                  style={{width:"100%",padding:"8px 10px",borderRadius:6,border:"1.5px solid #e2e8f0",
+                    fontSize:12,fontFamily:"monospace",boxSizing:"border-box"}}/>
+              </div>
+              <div>
+                <label style={{display:"block",fontSize:9,fontWeight:700,color:"#64748b",
+                  textTransform:"uppercase",letterSpacing:.5,fontFamily:"monospace",marginBottom:4}}>
+                  Turno de Saída
+                </label>
+                <select value={form.turno} onChange={e=>upd("turno",e.target.value)}
+                  style={{width:"100%",padding:"8px 10px",borderRadius:6,border:"1.5px solid #e2e8f0",
+                    fontSize:12,background:"#fff",boxSizing:"border-box"}}>
+                  {TURNOS_CONFIG.map(t=><option key={t.id} value={t.id}>{t.label}</option>)}
+                </select>
+              </div>
+            </div>
+
+            <div style={{marginBottom:16}}>
+              <label style={{display:"block",fontSize:9,fontWeight:700,color:"#64748b",
+                textTransform:"uppercase",letterSpacing:.5,fontFamily:"monospace",marginBottom:4}}>
+                Tema DDS (Diálogo Diário de Segurança)
+              </label>
+              <input type="text" value={form.temaDDS} onChange={e=>upd("temaDDS",e.target.value)}
+                placeholder="Ex: Uso correto de EPI's"
+                style={{width:"100%",padding:"8px 10px",borderRadius:6,border:"1.5px solid #e2e8f0",
+                  fontSize:12,boxSizing:"border-box"}}/>
+            </div>
+
+            {/* PRODUTIVIDADE */}
+            <div style={{background:"#fffbeb",border:"1px solid #fde68a",borderRadius:8,
+              padding:"6px 12px",marginBottom:12}}>
+              <span style={{fontSize:11,fontWeight:800,color:"#92400e",textTransform:"uppercase",
+                letterSpacing:.5}}>📊 Produtividade</span>
+            </div>
+
+            <div className="grid-2" style={{display:"grid",gap:10}}>
+              <CampoNumerico label="Média Soja Processada" meta="Meta 75 Ton/H"
+                valor={form.mediaSojaProcessada} onChange={v=>upd("mediaSojaProcessada",v)} placeholder="Ton/H"/>
+              <CampoNumerico label="Umid. Soja Entrada" meta={`Entre ${metas.UmidSojaEntrada?.min}% e ${metas.UmidSojaEntrada?.max}%`}
+                valor={form.umidSojaEntrada} onChange={v=>upd("umidSojaEntrada",v)} placeholder="%"/>
+              <CampoNumerico label="Umid. Soja Preparação" meta={`Entre ${metas.UmidSojaProducao?.min}% e ${metas.UmidSojaProducao?.max}%`}
+                valor={form.umidSojaPreparacao} onChange={v=>upd("umidSojaPreparacao",v)} placeholder="%"/>
+              <div style={{marginBottom:9}}>
+                <label style={{display:"block",fontSize:9,fontWeight:700,color:"#64748b",
+                  textTransform:"uppercase",letterSpacing:.5,fontFamily:"monospace",marginBottom:4}}>
+                  Tipo Farelo Produzido
+                </label>
+                <select value={form.tipoFareloProduzido} onChange={e=>upd("tipoFareloProduzido",e.target.value)}
+                  style={{width:"100%",padding:"8px 10px",borderRadius:6,border:"1.5px solid #e2e8f0",
+                    fontSize:12,background:"#fff",boxSizing:"border-box"}}>
+                  {TIPOS_FARELO.map(t=><option key={t}>{t}</option>)}
+                </select>
+              </div>
+              <CampoNumerico label="Espessura Lâmina" meta="Entre 0,35mm e 0,40mm"
+                valor={form.espessuraLamina} onChange={v=>upd("espessuraLamina",v)} placeholder="mm"/>
+              <CampoNumerico label="Pressão Hidráulica Laminadores" meta="Entre 40bar e 65bar"
+                valor={form.pressaoLaminadores} onChange={v=>upd("pressaoLaminadores",v)} placeholder="bar"/>
+              <CampoNumerico label="Aspiração Secundária (KICE)" valor={form.aspiracaoSecundaria}
+                onChange={v=>upd("aspiracaoSecundaria",v)} placeholder="Check depressões"/>
+              <CampoNumerico label="LEX do turno" meta="Meta 0,69" valor={form.lexTurno}
+                onChange={v=>upd("lexTurno",v)}/>
+              <div>
+                <label style={{display:"block",fontSize:9,fontWeight:700,color:"#64748b",
+                  textTransform:"uppercase",letterSpacing:.5,fontFamily:"monospace",marginBottom:4}}>
+                  Qual Graneleiro?
+                </label>
+                <input type="text" value={form.qualGraneleiro} onChange={e=>upd("qualGraneleiro",e.target.value)}
+                  style={{width:"100%",padding:"8px 10px",borderRadius:6,border:"1.5px solid #e2e8f0",
+                    fontSize:12,boxSizing:"border-box"}}/>
+              </div>
+              <div>
+                <label style={{display:"block",fontSize:9,fontWeight:700,color:"#64748b",
+                  textTransform:"uppercase",letterSpacing:.5,fontFamily:"monospace",marginBottom:4}}>
+                  Qual Célula?
+                </label>
+                <input type="text" value={form.qualCela} onChange={e=>upd("qualCela",e.target.value)}
+                  style={{width:"100%",padding:"8px 10px",borderRadius:6,border:"1.5px solid #e2e8f0",
+                    fontSize:12,boxSizing:"border-box"}}/>
+              </div>
+              <div>
+                <label style={{display:"block",fontSize:9,fontWeight:700,color:"#64748b",
+                  textTransform:"uppercase",letterSpacing:.5,fontFamily:"monospace",marginBottom:4}}>
+                  Qual Bica?
+                </label>
+                <input type="text" value={form.qualBica} onChange={e=>upd("qualBica",e.target.value)}
+                  style={{width:"100%",padding:"8px 10px",borderRadius:6,border:"1.5px solid #e2e8f0",
+                    fontSize:12,boxSizing:"border-box"}}/>
+              </div>
+              <CampoNumerico label="Vapor Radiadores DT" valor={form.vaporRadiadoresDT}
+                onChange={v=>upd("vaporRadiadoresDT",v)}/>
+              <CampoNumerico label="Vapor Radiadores Mega" valor={form.vaporRadiadoresMega}
+                onChange={v=>upd("vaporRadiadoresMega",v)}/>
+            </div>
+
+            <PerguntaSimNao label="Foi feito limpeza no RDL5533?" valor={form.limpezaRDL5533}
+              onChangeValor={v=>upd("limpezaRDL5533",v)}/>
+            <PerguntaSimNao label="Foi feito limpeza no filtro de manga 2560?" valor={form.limpezaFiltroManga}
+              onChangeValor={v=>upd("limpezaFiltroManga",v)}/>
+            <PerguntaSimNao label="Está dosando casca?" valor={form.dosandoCasca}
+              detalhe={form.dosandoCascaPct} onChangeValor={v=>upd("dosandoCasca",v)}
+              onChangeDetalhe={v=>upd("dosandoCascaPct",v)} labelDetalhe="Quantos % ?"/>
+            <PerguntaSimNao label="Casca está para o armazém?" valor={form.cascaParaArmazem}
+              onChangeValor={v=>upd("cascaParaArmazem",v)}/>
+
+            <div className="grid-2" style={{display:"grid",gap:10,marginTop:4}}>
+              <CampoNumerico label="Totalização Soja" valor={form.totalizacaoSoja}
+                onChange={v=>upd("totalizacaoSoja",v)} placeholder="ton"/>
+              <CampoNumerico label="Totalização Farelo" valor={form.totalizacaoFarelo}
+                onChange={v=>upd("totalizacaoFarelo",v)} placeholder="ton"/>
+            </div>
+
+            {/* SEGURANÇA */}
+            <div style={{background:"#fee2e2",border:"1px solid #fca5a5",borderRadius:8,
+              padding:"6px 12px",margin:"16px 0 12px"}}>
+              <span style={{fontSize:11,fontWeight:800,color:"#991b1b",textTransform:"uppercase",
+                letterSpacing:.5}}>🦺 Segurança</span>
+            </div>
+            <PerguntaSimNao label="Houve algum RELATAR durante o turno?" valor={form.houveRelatar}
+              detalhe={form.houveRelatarQual} onChangeValor={v=>upd("houveRelatar",v)}
+              onChangeDetalhe={v=>upd("houveRelatarQual",v)} labelDetalhe="Qual?"/>
+
+            {/* QUALIDADE */}
+            <div style={{background:"#dbeafe",border:"1px solid #93c5fd",borderRadius:8,
+              padding:"6px 12px",margin:"16px 0 12px"}}>
+              <span style={{fontSize:11,fontWeight:800,color:"#1e3a8a",textTransform:"uppercase",
+                letterSpacing:.5}}>🧪 Qualidade</span>
+            </div>
+            <div className="table-scroll">
+              <table style={{width:"100%",borderCollapse:"collapse",fontSize:11,marginBottom:12}}>
+                <thead>
+                  <tr style={{background:"#f1f5f9"}}>
+                    <th style={{textAlign:"left",padding:"6px 8px",fontSize:9,fontFamily:"monospace",
+                      color:"#64748b",textTransform:"uppercase"}}>KPI</th>
+                    <th style={{textAlign:"left",padding:"6px 8px",fontSize:9,fontFamily:"monospace",
+                      color:"#64748b",textTransform:"uppercase"}}>Meta</th>
+                    {TIPOS_FARELO.map(t=>(
+                      <th key={t} style={{textAlign:"center",padding:"6px 8px",fontSize:9,
+                        fontFamily:"monospace",color:"#64748b",textTransform:"uppercase"}}>{t}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {[
+                    ["umid","Umidade","46% Menor que 12,8 / Hipro Menor que 11,5%"],
+                    ["prot","Proteína","46% Maior que 45,7 / Hipro Maior que 47,0%"],
+                    ["oleo","Óleo","Máximo 2,5%"],
+                    ["fibra","Fibra","Máximo 6%"],
+                  ].map(([campo,label,meta])=>(
+                    <tr key={campo} style={{borderTop:"1px solid #f1f5f9"}}>
+                      <td style={{padding:"6px 8px",fontWeight:600,whiteSpace:"nowrap"}}>{label}</td>
+                      <td style={{padding:"6px 8px",fontSize:9,color:"#94a3b8",whiteSpace:"nowrap"}}>{meta}</td>
+                      {TIPOS_FARELO.map(tipo=>(
+                        <td key={tipo} style={{padding:"4px 6px"}}>
+                          <input type="number" step="0.01" value={form.qualidade[tipo][campo]}
+                            onChange={e=>updQualidade(tipo,campo,e.target.value)}
+                            style={{width:60,padding:"5px 6px",borderRadius:5,border:"1px solid #e2e8f0",
+                              fontSize:11,fontFamily:"monospace",textAlign:"center",boxSizing:"border-box"}}/>
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <CampoNumerico label="% Óleo na Casca" valor={form.percentOleoCasca}
+              onChange={v=>upd("percentOleoCasca",v)} placeholder="%"/>
+
+            {/* 5S */}
+            <div style={{background:"#dcfce7",border:"1px solid #86efac",borderRadius:8,
+              padding:"6px 12px",margin:"16px 0 12px"}}>
+              <span style={{fontSize:11,fontWeight:800,color:"#14532d",textTransform:"uppercase",
+                letterSpacing:.5}}>🧹 5S</span>
+            </div>
+            <PerguntaSimNao label="Área limpa e organizada?" valor={form.areaLimpa}
+              detalhe={form.areaLimpaMotivo} onChangeValor={v=>upd("areaLimpa",v)}
+              onChangeDetalhe={v=>upd("areaLimpaMotivo",v)} labelDetalhe="Motivo (se não)"/>
+            <PerguntaSimNao label="Check Lists WPO e DEC preenchidos e assinados?" valor={form.checklistsOk}
+              detalhe={form.checklistsMotivo} onChangeValor={v=>upd("checklistsOk",v)}
+              onChangeDetalhe={v=>upd("checklistsMotivo",v)} labelDetalhe="Motivo (se não)"/>
+            <PerguntaSimNao label="WPO / Qualidade — em dia?" valor={form.wpoOk}
+              onChangeValor={v=>upd("wpoOk",v)}/>
+            <PerguntaSimNao label="Lubrificação e Inspeção das Máquinas — em dia?" valor={form.lubrificacaoOk}
+              onChangeValor={v=>upd("lubrificacaoOk",v)}/>
+
+            {/* RELATÓRIO DO TURNO */}
+            <div style={{marginTop:6,marginBottom:14}}>
+              <label style={{display:"block",fontSize:9,fontWeight:700,color:"#64748b",
+                textTransform:"uppercase",letterSpacing:.5,fontFamily:"monospace",marginBottom:4}}>
+                Relatório do Turno *
+              </label>
+              <textarea rows={5} value={form.relatorioTurno} onChange={e=>upd("relatorioTurno",e.target.value)}
+                placeholder="Descreva os principais acontecimentos do turno para o próximo operador..."
+                style={{width:"100%",padding:"9px 11px",borderRadius:7,border:"1.5px solid #e2e8f0",
+                  fontSize:12,resize:"vertical",boxSizing:"border-box",fontFamily:"inherit"}}/>
+            </div>
+
+            <div style={{background:"#f8fafc",border:"1px solid #e2e8f0",borderRadius:8,
+              padding:"10px 13px",marginBottom:14,fontSize:11,color:"#64748b"}}>
+              ✍ Assinatura Operador de Saída: <b style={{color:"#0f172a"}}>{user.nome}</b>
+              <div style={{marginTop:3,color:"#94a3b8",fontSize:10}}>
+                A assinatura do Operador de Entrada será coletada quando ele confirmar o recebimento do turno.
+              </div>
+            </div>
+
+            {erro && (
+              <div style={{background:"#fff1f2",border:"1px solid #fca5a5",borderRadius:6,
+                padding:"8px 12px",color:"#dc2626",fontSize:12,marginBottom:12}}>
+                {erro}
+              </div>
+            )}
+
+            <div style={{display:"flex",gap:8}}>
+              <button onClick={salvar} disabled={salvando}
+                style={{flex:1,padding:12,background:salvando?"#94a3b8":"linear-gradient(135deg,#0f172a,#334155)",
+                  color:"#fff",border:"none",borderRadius:8,fontSize:13,fontWeight:700,
+                  cursor:salvando?"wait":"pointer"}}>
+                {salvando?"Salvando...":"💾 Salvar SHO do Turno"}
+              </button>
+              <button onClick={()=>setModal(false)}
+                style={{padding:"12px 16px",background:"#f1f5f9",color:"#64748b",
+                  border:"none",borderRadius:8,cursor:"pointer",fontSize:12}}>
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de visualização (read-only) */}
+      {visualizando && (
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.5)",display:"flex",
+          alignItems:"center",justifyContent:"center",zIndex:200,padding:16}}
+          onClick={()=>setVisualizando(null)}>
+          <div onClick={e=>e.stopPropagation()}
+            style={{background:"#fff",borderRadius:13,padding:22,width:"100%",maxWidth:560,
+            maxHeight:"85vh",overflowY:"auto",boxShadow:"0 24px 64px rgba(0,0,0,.3)"}}>
+            <h3 style={{fontSize:15,fontWeight:800,margin:"0 0 4px",color:"#0f172a"}}>
+              {new Date(visualizando.data+"T12:00:00").toLocaleDateString("pt-BR")} · {visualizando.turno}
+            </h3>
+            <p style={{fontSize:10,color:"#94a3b8",margin:"0 0 16px",fontFamily:"monospace"}}>
+              Saída: {visualizando.operadorSaida} {visualizando.operadorEntrada && `→ Entrada: ${visualizando.operadorEntrada}`}
+            </p>
+            {visualizando.temaDDS && (
+              <div style={{marginBottom:12,fontSize:12}}>
+                <b>Tema DDS:</b> {visualizando.temaDDS}
+              </div>
+            )}
+            <div style={{background:"#f8fafc",border:"1px solid #e2e8f0",borderRadius:8,
+              padding:13,marginBottom:12}}>
+              <div style={{fontSize:9,fontWeight:700,color:"#64748b",textTransform:"uppercase",
+                marginBottom:6,fontFamily:"monospace"}}>Relatório do Turno</div>
+              <div style={{fontSize:12,color:"#1e293b",lineHeight:1.6,whiteSpace:"pre-wrap"}}>
+                {visualizando.relatorioTurno}
+              </div>
+            </div>
+            <button onClick={()=>setVisualizando(null)}
+              style={{width:"100%",padding:11,background:"#f1f5f9",color:"#64748b",
+                border:"none",borderRadius:8,cursor:"pointer",fontSize:12,fontWeight:600}}>
+              Fechar
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de confirmação (Operador de Entrada) */}
+      {confirmando && (
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.5)",display:"flex",
+          alignItems:"center",justifyContent:"center",zIndex:210,padding:20}}>
+          <div style={{background:"#fff",borderRadius:13,padding:24,width:"100%",maxWidth:420,
+            boxShadow:"0 24px 64px rgba(0,0,0,.3)"}}>
+            <div style={{fontSize:32,marginBottom:10,textAlign:"center"}}>✍</div>
+            <h3 style={{fontSize:15,fontWeight:800,margin:"0 0 8px",textAlign:"center",color:"#0f172a"}}>
+              Confirmar Recebimento do Turno
+            </h3>
+            <p style={{fontSize:12,color:"#64748b",textAlign:"center",margin:"0 0 18px",lineHeight:1.6}}>
+              Você está confirmando que recebeu o turno de <b style={{color:"#0f172a"}}>{confirmando.operadorSaida}</b>{" "}
+              ({new Date(confirmando.data+"T12:00:00").toLocaleDateString("pt-BR")} · {confirmando.turno})
+              e leu o relatório do turno.
+            </p>
+            <div style={{display:"flex",gap:8}}>
+              <button onClick={confirmarEntrada} disabled={salvando}
+                style={{flex:1,padding:11,background:salvando?"#94a3b8":"linear-gradient(135deg,#16a34a,#15803d)",
+                  color:"#fff",border:"none",borderRadius:8,fontSize:13,fontWeight:700,
+                  cursor:salvando?"wait":"pointer"}}>
+                {salvando?"Confirmando...":`✓ Confirmar como ${user.nome.split(" ")[0]}`}
+              </button>
+              <button onClick={()=>setConfirmando(null)}
+                style={{padding:"11px 16px",background:"#f1f5f9",color:"#64748b",
+                  border:"none",borderRadius:8,cursor:"pointer",fontSize:12}}>
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════
 // LOGIN
 // ══════════════════════════════════════════════════════════════════
 function TelaLogin({onLogin}) {
@@ -7710,6 +8276,7 @@ export default function App() {
   const [paradas, setParadas] = useState([]);
   const [usuarios, setUsuarios] = useState([]);
   const [escala, setEscala] = useState([]);
+  const [shoTurnos, setShoTurnos] = useState([]);
   const [mobileOpen,  setMobileOpen]  = useState(false);
 
   const tema = modoEscuro ? TEMA.escuro : TEMA.claro;
@@ -7717,7 +8284,7 @@ export default function App() {
   // ── Carrega tudo do Supabase ao iniciar ──────────────────────
   const carregarTudo = async () => {
     try {
-      const [regs, mts, audit, calc, ocor, relTurno, parad, usrs, esc] = await Promise.all([
+      const [regs, mts, audit, calc, ocor, relTurno, parad, usrs, esc, shoT] = await Promise.all([
         listarRegistros(),
         listarMetas(),
         listarAuditoria(),
@@ -7727,6 +8294,7 @@ export default function App() {
         listarParadas(),
         listarUsuarios(),
         listarEscala(),
+        listarSHOTurno(),
       ]);
       setRegistros(regs);
       // Se o banco ainda não tem metas (primeira execução do schema.sql
@@ -7739,6 +8307,7 @@ export default function App() {
       setParadas(parad);
       setUsuarios(usrs);
       setEscala(esc);
+      setShoTurnos(shoT);
       setErroConexao("");
     } catch (e) {
       console.error("Erro ao conectar no Supabase:", e);
@@ -7918,6 +8487,7 @@ export default function App() {
   const telas={
     dashboard:       <TelaDashboard      user={user} setPagina={setPagina} registros={registros} metas={metas}/>,
     gerencial:       <TelaGerencial      registros={registros} metas={metas}/>,
+    sho_turno:       <TelaSHOTurno       user={user} shoTurnos={shoTurnos} setShoTurnos={setShoTurnos} metas={metas}/>,
     kpis_moagem:     <TelaKpisMoagem     user={user} registros={registros} setRegistros={setRegistrosSync} metas={metas}/>,
     mais_kpis:       <TelaMaisKpis       user={user} registros={registros} setRegistros={setRegistrosSync}/>,
     ocorrencias:     <TelaOcorrencias    user={user} ocorrencias={ocorrencias} setOcorrencias={setOcorrencias}/>,

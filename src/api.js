@@ -505,6 +505,85 @@ export async function excluirEscala(id) {
 }
 
 // ════════════════════════════════════════════════════════════════
+// SHO TURNO — formulário "Shift Hand Over" (agenda da troca de
+// turno), preenchido pelo Operador de Saída, confirmado pelo
+// Operador de Entrada
+// ════════════════════════════════════════════════════════════════
+
+function rowParaSHO(s) {
+  return {
+    id: s.id,
+    data: s.data,
+    turno: s.turno,
+    temaDDS: s.tema_dds,
+    relatorioTurno: s.relatorio_turno,
+    operadorSaida: s.operador_saida,
+    operadorEntrada: s.operador_entrada,
+    status: s.status,
+    dataConfirmacao: s.data_confirmacao,
+    timestamp: s.created_at,
+    ...(s.dados || {}),
+  };
+}
+
+const SHO_CAMPOS_PROPRIOS = [
+  "id","data","turno","temaDDS","relatorioTurno","operadorSaida",
+  "operadorEntrada","status","dataConfirmacao","timestamp",
+];
+
+function shoParaRow(sho) {
+  const dados = {};
+  Object.keys(sho).forEach((k) => {
+    if (!SHO_CAMPOS_PROPRIOS.includes(k)) dados[k] = sho[k];
+  });
+  return {
+    data: sho.data,
+    turno: sho.turno,
+    tema_dds: sho.temaDDS || "",
+    relatorio_turno: sho.relatorioTurno || "",
+    operador_saida: sho.operadorSaida,
+    dados,
+  };
+}
+
+export async function listarSHOTurno() {
+  const { data, error } = await supabase
+    .from("sho_turno")
+    .select("*")
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+  return (data || []).map(rowParaSHO);
+}
+
+export async function criarSHOTurno(sho) {
+  const row = shoParaRow(sho);
+  const { data, error } = await supabase
+    .from("sho_turno")
+    .insert(row)
+    .select()
+    .single();
+  if (error) throw error;
+  return rowParaSHO(data);
+}
+
+export async function confirmarSHOTurno(id, operadorEntrada) {
+  const { error } = await supabase
+    .from("sho_turno")
+    .update({
+      operador_entrada: operadorEntrada,
+      status: "CONFIRMADO",
+      data_confirmacao: new Date().toISOString(),
+    })
+    .eq("id", id);
+  if (error) throw error;
+}
+
+export async function excluirSHOTurno(id) {
+  const { error } = await supabase.from("sho_turno").delete().eq("id", id);
+  if (error) throw error;
+}
+
+// ════════════════════════════════════════════════════════════════
 // REALTIME — assina mudanças nas tabelas para refletir entre
 // dispositivos automaticamente (ex: celular salva → desktop atualiza)
 // ════════════════════════════════════════════════════════════════
@@ -520,6 +599,7 @@ export function assinarMudancas(callback) {
     .on("postgres_changes", { event: "*", schema: "public", table: "relatorios_turno" }, callback)
     .on("postgres_changes", { event: "*", schema: "public", table: "paradas_fabrica" }, callback)
     .on("postgres_changes", { event: "*", schema: "public", table: "escala_funcoes" }, callback)
+    .on("postgres_changes", { event: "*", schema: "public", table: "sho_turno" }, callback)
     .subscribe();
 
   return () => supabase.removeChannel(canal);
